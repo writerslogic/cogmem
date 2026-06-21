@@ -54,9 +54,10 @@ coding agents and goes further on three axes nobody else covers:
 - **Cross-project progress narrative** — momentum, stalls, and dependencies across
   projects, surfaced as alerts.
 - **Self-regulation** — recall thresholds tuned automatically against an eval harness.
-- **Verifiable Agent Memory** — `did:key` identity, W3C VC-signed memories, SCITT-style
-  transparency log with signed Merkle tree head and RFC 6962 inclusion receipts, optional
-  poison-resistance enforcement. See [PROVENANCE.md](./PROVENANCE.md).
+- **Verifiable Agent Memory** — `did:key` identity, W3C VC-signed memories, COSE_Sign1
+  SCITT signed statements (byte-compatible with HMS), a hash-chained transparency log with
+  signed Merkle tree head and RFC 6962 inclusion receipts, optional poison-resistance
+  enforcement. See [PROVENANCE.md](./PROVENANCE.md).
 
 ## Integration
 
@@ -83,6 +84,7 @@ cogmem note "..."    # record a decision/finding mid-task
 cogmem review list   # approve always-load rules
 cogmem verify        # verify every memory's credential + the transparency log
 cogmem receipt <id>  # inclusion proof that a memory is committed in the signed log
+cogmem statement <id># COSE_Sign1 SCITT signed statement (verifies under HMS too)
 ```
 
 ## Privacy

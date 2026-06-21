@@ -127,6 +127,43 @@ class ProvenanceTest(unittest.TestCase):
         receipt["sth"]["rootHash"] = bad.hex()                    # claim a different root
         self.assertFalse(pv.verify_receipt(receipt))              # STH signature no longer matches
 
+    def test_signed_statement_verifies(self):
+        vc = pv.issue_credential("rule-9", "use subprocess.run", {"kind": "rule"})
+        claim = pv.verify_signed_statement(pv.signed_statement("created", "rule-9", vc))
+        self.assertEqual(claim["memoryId"], "rule-9")
+        self.assertEqual(claim["statementHash"].hex(), pv._sha256(pv._canonical(vc)))
+
+    def test_signed_statement_structure_is_cose_sign1(self):
+        import cbor2
+        vc = pv.issue_credential("rule-9", "x", {"kind": "rule"})
+        arr = cbor2.loads(pv.signed_statement("created", "rule-9", vc))
+        self.assertEqual(len(arr), 4)                     # [protected, {}, payload, signature]
+        phdr = cbor2.loads(arr[0])
+        self.assertEqual(phdr[1], -8)                     # alg = EdDSA  (matches HMS)
+        self.assertEqual(phdr[3], "application/cbor")     # content type
+        self.assertEqual(len(phdr[4]), 32)                # kid = raw Ed25519 public key
+
+    def test_signed_statement_tampered_rejected(self):
+        vc = pv.issue_credential("rule-9", "x", {"kind": "rule"})
+        cose = bytearray(pv.signed_statement("created", "rule-9", vc))
+        cose[-1] ^= 0xFF                                   # corrupt the signature
+        with self.assertRaises(pv.InvalidSignature):
+            pv.verify_signed_statement(bytes(cose))
+
+    def test_signed_statement_wrong_key_rejected(self):
+        import cbor2
+        vc = pv.issue_credential("rule-9", "x", {"kind": "rule"})
+        arr = cbor2.loads(pv.signed_statement("created", "rule-9", vc))
+        phdr = cbor2.loads(arr[0])
+        phdr[4] = pv._pub_raw(pv.Ed25519PrivateKey.generate())   # swap in a foreign kid
+        arr[0] = cbor2.dumps(phdr)
+        with self.assertRaises(pv.InvalidSignature):
+            pv.verify_signed_statement(cbor2.dumps(arr))
+
+    def test_cose_malformed_rejected(self):
+        with self.assertRaises(ValueError):
+            pv._cose_verify(b"\x00\x01\x02 not cose")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

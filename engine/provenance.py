@@ -39,6 +39,7 @@ CREDENTIALS = VAULT / "credentials"
 IDENTITY = VAULT / "identity"
 KEY_FILE = IDENTITY / "agent.key"          # raw 32-byte Ed25519 private key (local only)
 LOG_FILE = VAULT / "provenance" / "log.jsonl"
+STATEMENTS = VAULT / "provenance" / "statements"   # COSE_Sign1 SCITT signed statements
 
 ED25519_MULTICODEC = b"\xed\x01"           # multicodec prefix for an ed25519 public key
 _B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
@@ -324,6 +325,85 @@ def verify_receipt(receipt: dict) -> bool:
         return False
 
 
+# --- COSE_Sign1 SCITT signed statements (CBOR) ----------------------------------
+# RFC 9052 untagged COSE_Sign1 over a CBOR claim, EdDSA. The envelope is byte-format
+# interoperable with HMS's `coset` signed statements, so a cogmem statement verifies
+# under HMS's SCITT verifier and vice versa. Headers: alg=EdDSA(-8), content type
+# "application/cbor", kid=raw Ed25519 public key; external_aad is empty.
+
+_COSE_ALG_EDDSA = -8
+_COSE_CONTENT_TYPE = "application/cbor"
+
+
+def _cbor():
+    try:
+        import cbor2
+    except ModuleNotFoundError as exc:                         # graceful: COSE is optional
+        raise RuntimeError("cbor2 is required for COSE signed statements "
+                           "(pip install cbor2)") from exc
+    return cbor2
+
+
+def _cose_sign1(key: Ed25519PrivateKey, payload: bytes,
+                content_type: str = _COSE_CONTENT_TYPE) -> bytes:
+    cbor2 = _cbor()
+    protected = cbor2.dumps({1: _COSE_ALG_EDDSA, 3: content_type, 4: _pub_raw(key)})
+    sig_structure = cbor2.dumps(["Signature1", protected, b"", payload])
+    signature = key.sign(sig_structure)
+    return cbor2.dumps([protected, {}, payload, signature])
+
+
+def _cose_verify(cose_bytes: bytes) -> bytes:
+    """Verify an untagged COSE_Sign1 against the key id in its protected header,
+    returning the payload. Raises on any structural or signature failure."""
+    cbor2 = _cbor()
+    try:
+        arr = cbor2.loads(cose_bytes)
+    except cbor2.CBORDecodeError as exc:
+        raise ValueError(f"malformed COSE/CBOR: {exc}") from exc
+    if not (isinstance(arr, list) and len(arr) == 4):
+        raise ValueError("not a COSE_Sign1 structure")
+    protected, _unprotected, payload, signature = arr
+    pub = cbor2.loads(protected).get(4)
+    if not isinstance(pub, (bytes, bytearray)):
+        raise ValueError("no key id in protected header")
+    sig_structure = cbor2.dumps(["Signature1", protected, b"", payload])
+    Ed25519PublicKey.from_public_bytes(bytes(pub)).verify(bytes(signature), sig_structure)
+    return payload
+
+
+def signed_statement(event: str, memory_id: str, vc: dict) -> bytes:
+    """A SCITT signed statement (COSE_Sign1) attesting a memory's credential. Its
+    statementHash matches the transparency-log entry, linking the two."""
+    cbor2 = _cbor()
+    key = _load_or_create_key()
+    claim = {
+        "iss": did_key(_pub_raw(key)),
+        "memoryId": memory_id,
+        "memoryType": vc.get("credentialSubject", {}).get("memoryType", "rule"),
+        "event": event,
+        "statementHash": bytes.fromhex(_sha256(_canonical(vc))),
+        "timestampMs": int(datetime.now(timezone.utc).timestamp() * 1000),
+    }
+    return _cose_sign1(key, cbor2.dumps(claim))
+
+
+def verify_signed_statement(cose_bytes: bytes) -> dict:
+    """Verify a signed statement's COSE signature and return its decoded claim.
+    Raises if the signature is invalid."""
+    return _cbor().loads(_cose_verify(cose_bytes))
+
+
+def _emit_statement(event: str, memory_id: str, vc: dict) -> None:
+    """Write the COSE signed statement for a memory; best-effort so a missing cbor2
+    or write error never breaks the core signing pipeline."""
+    try:
+        STATEMENTS.mkdir(parents=True, exist_ok=True)
+        (STATEMENTS / f"{memory_id}.cose").write_bytes(signed_statement(event, memory_id, vc))
+    except (RuntimeError, OSError):
+        log.debug("COSE signed statement skipped for %s", memory_id)
+
+
 # --- vault operations (CLI) -----------------------------------------------------
 
 def sign_vault() -> int:
@@ -344,11 +424,14 @@ def sign_vault() -> int:
                 existing = {}
             # already signed and unchanged -> skip; legitimately edited -> re-sign
             if existing.get("credentialSubject", {}).get("statement") == body:
+                if not (STATEMENTS / f"{rid}.cose").exists():
+                    _emit_statement("created", rid, existing)   # backfill missing statement
                 continue
             event = "updated"
         vc = issue_credential(rid, body, meta)
         cpath.write_text(json.dumps(vc, indent=2))
         log_append(event, rid, vc)
+        _emit_statement(event, rid, vc)
         issued += 1
     return issued
 
@@ -419,7 +502,39 @@ if __name__ == "__main__":
         ok = verify_receipt(json.loads(Path(sys.argv[2]).read_text()))
         log.info("Inclusion receipt: %s", "VALID" if ok else "INVALID")
         sys.exit(0 if ok else 1)
+    elif command == "statement":
+        if len(sys.argv) < 3:
+            log.error("Usage: provenance.py statement <memory_id>")
+            sys.exit(1)
+        mid = sys.argv[2]
+        spath = STATEMENTS / f"{mid}.cose"
+        if spath.exists():
+            cose = spath.read_bytes()
+        else:
+            cpath = CREDENTIALS / f"{mid}.jsonld"
+            if not cpath.exists():
+                log.error("No credential for memory '%s' (run sign-vault first)", mid)
+                sys.exit(1)
+            cose = signed_statement("created", mid, json.loads(cpath.read_text()))
+        sys.stdout.write(cose.hex() + "\n")
+    elif command == "verify-statement":
+        if len(sys.argv) < 3:
+            log.error("Usage: provenance.py verify-statement <statement.cose|.hex>")
+            sys.exit(1)
+        raw = Path(sys.argv[2]).read_bytes()
+        try:
+            cose = bytes.fromhex(raw.decode().strip())
+        except (ValueError, UnicodeDecodeError):
+            cose = raw
+        try:
+            claim = verify_signed_statement(cose)
+            log.info("Signed statement: VALID (memory %s, issuer %s)",
+                     claim.get("memoryId"), claim.get("iss"))
+        except (ValueError, InvalidSignature, RuntimeError):
+            log.info("Signed statement: INVALID")
+            sys.exit(1)
     else:
         log.error("Usage: provenance.py [status | sign-vault | verify | sth | "
-                  "receipt <id> | verify-receipt <file>]")
+                  "receipt <id> | verify-receipt <file> | statement <id> | "
+                  "verify-statement <file>]")
         sys.exit(1)

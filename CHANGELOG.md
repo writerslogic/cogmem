@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **COSE_Sign1 SCITT signed statements** (`cogmem statement` / `verify-statement`):
+  each memory is issued as a COSE_Sign1 signed statement (CBOR, Ed25519) per
+  `draft-ietf-scitt-architecture`, byte-compatible with the Holographic Memory System —
+  a cogmem statement verifies under HMS's `coset` verifier (shared conformance vector in
+  `tests/vectors/`). Adds a `cbor2` dependency.
 - **MCP server** (`cogmem mcp`): a stdlib-only stdio JSON-RPC server implementing the
   MCP `tools` and `resources` capabilities — eight tools (`recall`, `note`, `status`,
   `verify`, `receipt`, `tree_head`, `progress`, `review_pending`) with structured

@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install cryptography
+        run: pip install cryptography cbor2
       - name: Byte-compile engine
         run: python -m compileall -q engine
       - name: Provenance tests (credentials, transparency log, inclusion receipts)
