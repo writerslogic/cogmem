@@ -1,0 +1,47 @@
+#!/bin/bash
+# cogmem — single entry point for the cognitive memory system.
+#   cogmem review [list|promote <id>|reject <id>]   approve/decline Layer-A rules
+#   cogmem status                                    health summary
+#   cogmem capture <transcript>                      manual acquisition
+#   cogmem consolidate | index                       run a stage by hand
+set -uo pipefail
+
+ENGINE="$HOME/.claude/cogmem/engine"
+PY="$ENGINE/.venv/bin/python3"
+[[ -x "$PY" ]] || PY="python3"
+
+cmd="${1:-status}"
+shift 2>/dev/null || true
+
+case "$cmd" in
+  review)      exec "$PY" "$ENGINE/review.py" "$@" ;;
+  model)       exec "$PY" "$ENGINE/usermodel.py" "$@" ;;
+  progress)    exec "$PY" "$ENGINE/narrative.py" "$@" ;;
+  note)        exec "$PY" "$ENGINE/note.py" "$@" ;;
+  recall)
+    OUT=$("$PY" "$ENGINE/recall.py" "$*" --k 3 2>/dev/null)
+    if [[ -n "$OUT" ]]; then
+      echo "$OUT" | "$PY" -c "import json,sys; [print('- '+r['text']) for r in json.load(sys.stdin)]"
+    else
+      echo "(no relevant memories)"
+    fi ;;
+  capture)     exec "$PY" "$ENGINE/acquire.py" "$@" ;;
+  ingest)      exec "$PY" "$ENGINE/artifacts.py" "$@" ;;
+  tune)        exec "$PY" "$ENGINE/tune.py" "$@" ;;
+  provenance)  exec "$PY" "$ENGINE/provenance.py" "$@" ;;
+  verify)      exec "$PY" "$ENGINE/provenance.py" verify ;;
+  receipt)     exec "$PY" "$ENGINE/provenance.py" receipt "$@" ;;
+  sign-vault)  exec "$PY" "$ENGINE/provenance.py" sign-vault ;;
+  mcp)         exec "$PY" "$ENGINE/mcp_server.py" ;;
+  consolidate) exec "$PY" "$ENGINE/consolidate.py" "$@" ;;
+  index)       exec "$PY" "$ENGINE/index.py" "$@" ;;
+  status)
+    "$PY" "$ENGINE/metrics.py"
+    pgrep -f "$ENGINE/daemon.py" >/dev/null && echo "Daemon:                   warm" || echo "Daemon:                   cold (lazy-spawns)"
+    PEND=$(ls "$HOME/.claude/cogmem/vault/pending" 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$PEND" -gt 0 ]] && echo "-> $PEND rule(s) await approval: cogmem review list"
+    ;;
+  *)
+    echo "Usage: cogmem [review|status|capture <t>|consolidate|index]" >&2
+    exit 1 ;;
+esac

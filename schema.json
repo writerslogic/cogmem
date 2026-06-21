@@ -1,0 +1,56 @@
+{
+  "episode": {
+    "id": "string (uuid)",
+    "timestamp": "ISO 8601",
+    "project": "string (project directory name)",
+    "context": "string (what was being worked on)",
+    "task_type": "string (bug_fix|feature|refactor|debug|review|explore)",
+    "key_decisions": ["string (decisions made and why)"],
+    "surprise": "string (what was unexpected or non-obvious)",
+    "outcome": "string (success|partial|failure|abandoned)",
+    "corrections": ["string (user corrections received)"],
+    "counterfactual": "string (would default behavior have been wrong without this knowledge?)",
+    "transferability": "string (where else this applies)",
+    "files_touched": ["string (key files, not exhaustive)"],
+    "duration_minutes": "number (approximate)"
+  },
+  "hypothesis": {
+    "id": "string (slug)",
+    "claim": "string (the principle)",
+    "causal_model": "string (WHY this is true - mechanism)",
+    "domain": "string (where this applies: universal|language|project|subsystem)",
+    "domain_scope": "string (specific scope identifier)",
+    "evidence_for": "number (confirming episodes)",
+    "evidence_against": "number (contradicting episodes)",
+    "evidence_episodes": ["string (episode IDs)"],
+    "confidence": "number (0.0-1.0)",
+    "utility_score": "number (0.0-1.0, from activation outcomes)",
+    "utility_activations": "number (times surfaced)",
+    "utility_helpful": "number (times confirmed helpful)",
+    "tags": ["string (semantic tags for activation matching, e.g. error-handling, crypto, async)"],
+    "activation_fatigue": "number (count of consecutive untracked activations, reset on feedback)",
+    "prediction": "string (testable prediction this hypothesis makes)",
+    "falsifiable_by": "string (what would disprove this)",
+    "created": "ISO 8601",
+    "last_verified": "ISO 8601",
+    "last_activated": "ISO 8601",
+    "last_feedback": "ISO 8601 (last time outcome was tracked, null if never)",
+    "status": "string (candidate|active|verified|stale|archived)"
+  },
+  "activation": {
+    "timestamp": "ISO 8601",
+    "hypothesis_id": "string",
+    "context": "string (what triggered activation)",
+    "prediction_made": "string (what was predicted)",
+    "outcome": "string (helpful|ignored|wrong|not_applicable)",
+    "notes": "string (optional context)"
+  },
+  "event": {
+    "timestamp": "ISO 8601",
+    "session_id": "string",
+    "project": "string",
+    "type": "string (correction|surprise|failure|decision|preference)",
+    "content": "string",
+    "metadata": {}
+  }
+}

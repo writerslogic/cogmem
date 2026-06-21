@@ -1,0 +1,31 @@
+# ── Personal / runtime data — NEVER commit ───────────────────────────────────
+# The live system stores private memories and a secret identity key here.
+vault/                 # memories, credentials, AND the Ed25519 private key
+episodes/
+hypotheses/
+activations/
+consolidation/
+stream/
+*.log
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Derived indexes / databases ──────────────────────────────────────────────
+engine/index.db
+*.db
+*.sqlite
+
+# ── OS / editor ──────────────────────────────────────────────────────────────
+.DS_Store
+*.swp
+.idea/
+.vscode/

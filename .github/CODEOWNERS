@@ -1,0 +1,7 @@
+# Default owners for the cogmem repository
+* @writerslogic/core
+
+# Security-sensitive paths require security team review
+engine/provenance.py      @writerslogic/security
+engine/test_provenance.py @writerslogic/security
+engine/guard.py           @writerslogic/security

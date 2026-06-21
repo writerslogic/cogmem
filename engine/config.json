@@ -1,0 +1,5 @@
+{
+  "recall_floor": 0.55,
+  "recall_gap": 6.0,
+  "provenance_enforce": false
+}
