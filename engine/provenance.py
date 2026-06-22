@@ -156,6 +156,76 @@ def verify_credential(vc: dict) -> bool:
         return False
 
 
+# --- AI-agent identity credential (DIF identity layer) --------------------------
+# The operator-issued (or self-issued) W3C VC v2 asserting *what the agent is*: a
+# software agent with an accountable operator and, optionally, the model behind it.
+# This is the identity-layer credential sketched in
+# docs/proposals/ai-agent-identity-for-content-provenance.md §3 — distinct from the
+# CAWG ICA credential, which *binds* such an identity to content. It is secured with
+# the same eddsa-jcs-2022 Data Integrity proof as issue_credential. When an operator
+# DID issues it the proof is still produced under the agent key here (the reference is
+# self-signed by the agent for operators that delegate to the agent's key); a real
+# operator-anchored deployment would sign under the operator's own key.
+
+AGENT_CREDENTIAL_TYPE = "AIAgentCredential"
+TRUSTED_AI_AGENTS_CONTEXT = "https://identity.foundation/trusted-ai-agents/v1"
+
+
+def agent_identity_credential(operator_did: str = None, model: dict = None) -> dict:
+    """A W3C VC v2 of type AIAgentCredential asserting the agent is an AI agent with an
+    accountable operator. `issuer` is the operator DID when given, else the agent DID
+    (self-issued). The subject is the agent's did:key. `model`, if given, is carried as
+    a credentialSubject.model declaration. Signed with the eddsa-jcs-2022 proof under
+    the agent key (the verification method is the agent DID's key)."""
+    key = _load_or_create_key()
+    did = did_key(_pub_raw(key))
+    now = datetime.now(timezone.utc).isoformat()
+    operator = operator_did or did
+    subject = {
+        "id": did,
+        "actorType": "ai-agent",
+        "operator": {"id": operator},
+    }
+    if model:
+        subject["model"] = model
+    vc = {
+        "@context": [VC_CONTEXT, TRUSTED_AI_AGENTS_CONTEXT],
+        "type": ["VerifiableCredential", AGENT_CREDENTIAL_TYPE],
+        "issuer": operator,
+        "validFrom": now,
+        "credentialSubject": subject,
+    }
+    proof = {
+        "type": "DataIntegrityProof",
+        "cryptosuite": "eddsa-jcs-2022",
+        "created": now,
+        "verificationMethod": f"{did}#{did.split(':')[-1]}",
+        "proofPurpose": "assertionMethod",
+    }
+    signing_input = _canonical({**vc, "proof": proof})
+    proof["proofValue"] = "z" + b58encode(key.sign(signing_input))
+    vc["proof"] = proof
+    return vc
+
+
+def verify_agent_identity_credential(vc: dict) -> bool:
+    """Verify an AIAgentCredential's eddsa-jcs-2022 proof against the key in its
+    verification method (the agent DID). Mirrors verify_credential, but the signing key
+    is the agent DID embedded in the proof's verificationMethod, not necessarily the
+    issuer (which may be an operator DID that delegated to the agent key)."""
+    try:
+        proof = dict(vc["proof"])
+        sig = b58decode(proof.pop("proofValue")[1:])
+        signing_input = _canonical({**{k: v for k, v in vc.items() if k != "proof"},
+                                    "proof": proof})
+        vm = proof["verificationMethod"]
+        signer_did = vm.split("#", 1)[0]
+        pubkey_from_did(signer_did).verify(sig, signing_input)
+        return True
+    except (KeyError, ValueError, InvalidSignature, IndexError):
+        return False
+
+
 # --- SCITT-style transparency log ----------------------------------------------
 
 def _entry_signing_input(e: dict) -> bytes:

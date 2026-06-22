@@ -20,3 +20,5 @@ jobs:
         run: python -m compileall -q engine
       - name: Provenance tests (credentials, transparency log, inclusion receipts)
         run: python engine/test_provenance.py
+      - name: Soft-binding tests (text fingerprint)
+        run: python engine/test_softbinding.py
