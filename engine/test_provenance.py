@@ -186,5 +186,20 @@ class ProvenanceTest(unittest.TestCase):
             pv.verify_ica_assertion(bytes(assertion))
 
 
+
+class CoseHardeningTest(unittest.TestCase):
+    """T7: _cose_verify must reject any algorithm other than EdDSA (alg confusion)."""
+
+    def test_non_eddsa_alg_rejected(self):
+        import cbor2
+        cose = pv.signed_statement("used", "m", pv.issue_credential("m", "x", {"kind": "rule"}))
+        arr = cbor2.loads(cose)
+        ph = cbor2.loads(arr[0])
+        ph[1] = -7  # forge the protected alg to ES256
+        arr[0] = cbor2.dumps(ph)
+        with self.assertRaises(ValueError):
+            pv._cose_verify(cbor2.dumps(arr))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

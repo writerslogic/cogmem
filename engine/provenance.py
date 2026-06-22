@@ -365,7 +365,10 @@ def _cose_verify(cose_bytes: bytes) -> bytes:
     if not (isinstance(arr, list) and len(arr) == 4):
         raise ValueError("not a COSE_Sign1 structure")
     protected, _unprotected, payload, signature = arr
-    pub = cbor2.loads(protected).get(4)
+    ph = cbor2.loads(protected)
+    if ph.get(1) != _COSE_ALG_EDDSA:
+        raise ValueError("unexpected COSE algorithm (only EdDSA is permitted)")
+    pub = ph.get(4)
     if not isinstance(pub, (bytes, bytearray)):
         raise ValueError("no key id in protected header")
     sig_structure = cbor2.dumps(["Signature1", protected, b"", payload])
