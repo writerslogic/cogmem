@@ -20,7 +20,9 @@ cross-verifies under independent implementations (cogmem and holographic-memory)
 
 ## Files
 - `agent-content.txt` — the asset the agent produced.
-- `agent-content.c2pa` — the signed C2PA 2.4 manifest (standalone sidecar).
+- `agent-content.c2pa` — the signed C2PA manifest, `did:jwk` issuer (verifies offline).
+- `agent-content-didweb.c2pa` — the same manifest and same signed statements, issued from
+  `did:web:writersproof.com:agents:cogmem` (resolved live over HTTPS during validation).
 - `wp-root.pem` — the X.509 trust anchor for the claim signer (optional, for trust checks).
 - `verify.sh` — runs `c2patool`, asserts the agent identity is valid, then verifies the cognition binding.
 - `verify-cognition.py` — verifies the two embedded COSE/SCITT cognition statements (called by `verify.sh`).
@@ -35,16 +37,19 @@ git clone https://github.com/contentauth/c2pa-rs
 cd c2pa-rs && cargo build --release -p c2patool
 ```
 
-Then:
+Then validate either sample — `did:jwk` (verifies offline) or the production `did:web`
+issuer (resolved live from `https://writersproof.com/agents/cogmem/did.json`):
 
 ```bash
-C2PATOOL=/path/to/c2pa-rs/target/release/c2patool ./verify.sh
+export C2PATOOL=/path/to/c2pa-rs/target/release/c2patool
+./verify.sh                            # agent-content.c2pa     (did:jwk, offline)
+./verify.sh agent-content-didweb.c2pa  # did:web, resolved live over HTTPS
 ```
 
-Expected:
+Expected (the `did:jwk` sample; the `did:web` sample is identical but for the issuer):
 
 ```
-PASS: cawg.ica.credential_valid — the AI agent's identity validates.
+PASS: cawg.ica.credential_valid — the agent's CAWG identity validates.
   issuer: did:jwk:eyJjcnYiOiJFZDI1NTE5Ii…
   type:   IdentityClaimsAggregationCredential
 --- cognition binding ---
@@ -72,8 +77,11 @@ You'll see `cawg.ica.credential_valid` in `validation_results.activeManifest.suc
 and the decoded `cawg.identity` credential issued by the agent's DID.
 
 ## Honest notes
-- The issuer here is `did:jwk` (self-contained, resolves with no network) so this sample
-  verifies offline. Production uses `did:web:writersproof.com:agents:cogmem`.
+- Two samples, same content and same signed memory/reasoning statements, differing only by
+  issuer: `agent-content.c2pa` uses `did:jwk` (self-contained, verifies offline);
+  `agent-content-didweb.c2pa` uses the production `did:web:writersproof.com:agents:cogmem`,
+  which c2patool resolves live over HTTPS. `did:web` carries no embedded key, so a pass
+  there proves real resolution against the hosted document.
 - `validation_state` may report `signingCredential.untrusted` unless you supply
   `wp-root.pem` as a trust anchor — that's about the X.509 *claim signer*, independent of
   the CAWG agent-identity validity shown by `cawg.ica.credential_valid`.

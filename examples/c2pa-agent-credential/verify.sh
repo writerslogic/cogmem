@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
-# Verify that the sample C2PA manifest carries a valid CAWG agent identity.
+# Verify that a sample C2PA manifest carries a valid CAWG agent identity.
+# Usage: ./verify.sh [manifest]
+#   default: agent-content.c2pa          (did:jwk issuer, verifies offline)
+#   also:    agent-content-didweb.c2pa   (did:web issuer, resolved live over HTTPS)
 # Requires a c2patool that runs the async CawgValidator (see README). Override the
 # binary with C2PATOOL=/path/to/c2patool.
 set -euo pipefail
 
 C2PATOOL="${C2PATOOL:-c2patool}"
 here="$(cd "$(dirname "$0")" && pwd)"
-manifest="$here/agent-content.c2pa"
+manifest="$here/${1:-agent-content.c2pa}"
 
+echo "Verifying $(basename "$manifest")"
 report="$("$C2PATOOL" "$manifest" --detailed)"
 
 if grep -q '"cawg.ica.credential_valid"' <<<"$report"; then
-  echo "PASS: cawg.ica.credential_valid — the AI agent's identity validates."
+  echo "PASS: cawg.ica.credential_valid — the agent's CAWG identity validates."
   # Show the verified credential's issuer + type for context.
   python3 - "$report" <<'PY' 2>/dev/null || true
 import json, sys
