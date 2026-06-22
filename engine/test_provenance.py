@@ -164,6 +164,27 @@ class ProvenanceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             pv._cose_verify(b"\x00\x01\x02 not cose")
 
+    # --- CAWG ICA conformance (shared vector, c2patool-validated) ----------------
+
+    def _ica_vector(self):
+        path = (Path(__file__).resolve().parent.parent
+                / "tests" / "vectors" / "cawg-ica-credential.json")
+        return json.loads(path.read_text())
+
+    def test_ica_assertion_verifies(self):
+        vec = self._ica_vector()
+        assertion = bytes.fromhex(vec["identity_assertion_cbor_hex"])
+        vc = pv.verify_ica_assertion(assertion)
+        self.assertEqual(vc["issuer"], vec["issuer"])
+        self.assertIn("IdentityClaimsAggregationCredential", vc["type"])
+
+    def test_ica_assertion_tampered_rejected(self):
+        vec = self._ica_vector()
+        assertion = bytearray(bytes.fromhex(vec["identity_assertion_cbor_hex"]))
+        assertion[-1] ^= 0xFF                    # flip a byte of the assertion
+        with self.assertRaises((ValueError, pv.InvalidSignature)):
+            pv.verify_ica_assertion(bytes(assertion))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

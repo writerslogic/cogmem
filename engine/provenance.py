@@ -19,6 +19,7 @@ are roadmap (see PROVENANCE.md). The crypto here is real and verifiable.
 Usage (library): issue_credential, verify_credential, log_append, verify_log.
 """
 
+import base64
 import hashlib
 import json
 import logging
@@ -404,6 +405,222 @@ def _emit_statement(event: str, memory_id: str, vc: dict) -> None:
         log.debug("COSE signed statement skipped for %s", memory_id)
 
 
+# --- did:web / did:jwk resolution -----------------------------------------------
+# Resolve an agent DID to its Ed25519 key. did:key/did:jwk are self-contained;
+# did:web is fetched (or supplied offline). did:web publishes the key as a JWK so
+# the CAWG ICA issuer resolver in c2pa-rs can verify the agent's credential.
+
+def agent_did_web(domain: str, path: str = "agents/cogmem"):
+    """Return (did:web identifier, DID document) for the agent anchored at `domain`.
+    Host the document at the did:web URL and any Universal Resolver can resolve it
+    (`did:web:domain:a:b` resolves to `https://domain/a/b/did.json`). The
+    assertionMethod is an embedded verification method publishing the Ed25519 key as a
+    `publicKeyJwk` (OKP), the shape the CAWG ICA issuer resolver in c2pa-rs requires."""
+    key = _load_or_create_key()
+    seg = (":" + path.replace("/", ":")) if path else ""
+    did = f"did:web:{domain}{seg}"
+    vm = {"id": f"{did}#key-1", "type": "JsonWebKey2020", "controller": did,
+          "publicKeyJwk": _agent_jwk_public(key)}
+    doc = {
+        "@context": ["https://www.w3.org/ns/did/v1",
+                     "https://w3id.org/security/suites/jws-2020/v1"],
+        "id": did,
+        "verificationMethod": [vm],
+        "authentication": [vm["id"]],
+        "assertionMethod": [vm],
+    }
+    return did, doc
+
+
+def _fetch_did_web(did: str) -> dict:
+    import urllib.request
+    parts = did[len("did:web:"):].split(":")
+    host = parts[0]
+    sub = "/".join(parts[1:]) if len(parts) > 1 else ".well-known"
+    with urllib.request.urlopen(f"https://{host}/{sub}/did.json", timeout=10) as resp:
+        return json.loads(resp.read())
+
+
+def resolve_did_to_key(did: str, document: dict = None) -> bytes:
+    """Resolve a DID to its raw 32-byte Ed25519 public key. did:key and did:jwk are
+    self-resolving; did:web is resolved from `document` (offline) or fetched over HTTPS."""
+    if did.startswith("did:key:"):
+        return pubkey_from_did(did).public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    if did.startswith("did:jwk:"):
+        jwk = json.loads(_b64url_decode(did[len("did:jwk:"):]))
+        return _okp_jwk_to_raw(jwk)
+    if did.startswith("did:web:"):
+        doc = document or _fetch_did_web(did)
+        vm = doc["verificationMethod"][0]
+        if "publicKeyJwk" in vm:
+            return _okp_jwk_to_raw(vm["publicKeyJwk"])
+        decoded = b58decode(vm["publicKeyMultibase"][1:])
+        if decoded[:2] != ED25519_MULTICODEC:
+            raise ValueError("did:web verification method is not ed25519")
+        return decoded[2:]
+    raise ValueError(f"unsupported DID method: {did}")
+
+
+
+
+# --- CAWG identity claims aggregation (ICA) -------------------------------------
+# The production-correct path c2pa-rs ships: the agent is the *issuer* of a W3C
+# Verifiable Credential of type IdentityClaimsAggregationCredential, secured by a
+# COSE_Sign1 (tag-18, EdDSA, content type `application/vc`) over the VC JSON. The VC's
+# credentialSubject.c2paAsset is the SignerPayload (CBOR bytestring hashes rendered as
+# standard base64); the same SignerPayload is carried in CBOR in the identity assertion
+# and the two are cross-checked. The issuer DID (did:jwk self-contained, or did:web
+# resolving to a publicKeyJwk assertionMethod) binds the VC to the signing key.
+
+CAWG_ICA_SIG_TYPE = "cawg.identity_claims_aggregation"
+ICA_CONTEXT = "https://cawg.io/identity/1.1/ica/context/"
+VC_CONTEXT = "https://www.w3.org/ns/credentials/v2"
+ICA_CREDENTIAL_TYPE = "IdentityClaimsAggregationCredential"
+_COSE_CONTENT_TYPE_VC = "application/vc"
+
+
+def _b64url_nopad(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def _okp_jwk_to_raw(jwk: dict) -> bytes:
+    if jwk.get("kty") != "OKP" or jwk.get("crv") != "Ed25519":
+        raise ValueError("JWK is not an Ed25519 OKP key")
+    return _b64url_decode(jwk["x"])
+
+
+def _agent_jwk_public(key: Ed25519PrivateKey) -> dict:
+    return {"kty": "OKP", "crv": "Ed25519", "x": _b64url_nopad(_pub_raw(key))}
+
+
+def agent_did_jwk() -> str:
+    """Self-contained issuer DID: the agent's public JWK embedded in the DID itself, so
+    a verifier resolves the key with no network fetch. The method-specific id is
+    canonically padded base64url, which c2pa-rs's ICA resolver requires."""
+    jwk = _agent_jwk_public(_load_or_create_key())
+    enc = base64.urlsafe_b64encode(_canonical(jwk)).decode("ascii")
+    return "did:jwk:" + enc
+
+
+def _cose_sign1_vc(key: Ed25519PrivateKey, payload: bytes) -> bytes:
+    """Tag-18 COSE_Sign1 over the VC JSON: protected {alg EdDSA, content type
+    application/vc}, empty external_aad, non-detached payload."""
+    cbor2 = _cbor()
+    protected = cbor2.dumps({1: _COSE_ALG_EDDSA, 3: _COSE_CONTENT_TYPE_VC})
+    sig_structure = cbor2.dumps(["Signature1", protected, b"", payload])
+    signature = key.sign(sig_structure)
+    return cbor2.dumps(cbor2.CBORTag(18, [protected, {}, payload, signature]))
+
+
+def _ica_signer_payloads(refs: list):
+    """Build the SignerPayload twice from `refs` (list of (url, alg, raw_hash)): the CBOR
+    form (raw bytestring hashes) for the identity assertion, and the JSON form (standard
+    base64 hashes) for the VC's c2paAsset. The two are equal after the verifier decodes."""
+    cbor_refs, json_refs = [], []
+    for url, alg, raw in refs:
+        c = {"url": url, "hash": raw}
+        j = {"url": url, "hash": base64.b64encode(raw).decode("ascii")}
+        if alg:
+            c["alg"] = alg
+            j["alg"] = alg
+        cbor_refs.append(c)
+        json_refs.append(j)
+    return ({"referenced_assertions": cbor_refs, "sig_type": CAWG_ICA_SIG_TYPE},
+            {"referenced_assertions": json_refs, "sig_type": CAWG_ICA_SIG_TYPE})
+
+
+def agent_verified_identity(display_name: str, provider_id: str, provider_name: str,
+                            id_type: str, verified_at: str = None, uri: str = None) -> dict:
+    """One entry of the VC's verifiedIdentities array. `id_type` names the verification
+    performed: no CAWG-standard type exists yet for an AI agent (the named types are
+    human-oriented), so callers pass a vendor-namespaced type pending that upstream gap."""
+    vi = {"type": id_type, "name": display_name,
+          "verifiedAt": verified_at or datetime.now(timezone.utc).isoformat(),
+          "provider": {"id": provider_id, "name": provider_name}}
+    if uri:
+        vi["uri"] = uri
+    return vi
+
+
+def ica_credential(issuer_did: str, refs: list, verified_identities: list,
+                   valid_from: str = None) -> dict:
+    """The IdentityClaimsAggregationCredential (a W3C VC v2) the agent issues over the
+    C2PA asset's SignerPayload."""
+    _, sp_json = _ica_signer_payloads(refs)
+    return {
+        "@context": [VC_CONTEXT, ICA_CONTEXT],
+        "type": ["VerifiableCredential", ICA_CREDENTIAL_TYPE],
+        "issuer": issuer_did,
+        "validFrom": valid_from or datetime.now(timezone.utc).isoformat(),
+        "credentialSubject": {
+            "verifiedIdentities": verified_identities,
+            "c2paAsset": sp_json,
+        },
+    }
+
+
+def ica_identity_assertion(refs: list, issuer_did: str, verified_identities: list,
+                           valid_from: str = None):
+    """The CAWG identity assertion in ICA form, embedded under `cawg.identity`. Returns
+    (assertion_cbor, vc): the IdentityAssertion map {signer_payload, signature, pad1}
+    where `signature` is the tag-18 COSE_Sign1 over the ICA VC. `refs` MUST include the
+    hard binding (a `c2pa.hash.*` assertion)."""
+    cbor2 = _cbor()
+    key = _load_or_create_key()
+    sp_cbor, _ = _ica_signer_payloads(refs)
+    vc = ica_credential(issuer_did, refs, verified_identities, valid_from)
+    cose = _cose_sign1_vc(key, _canonical(vc))
+    assertion = cbor2.dumps({"signer_payload": sp_cbor, "signature": cose, "pad1": b""},
+                            canonical=True)
+    return assertion, vc
+
+
+def verify_ica_assertion(assertion_bytes: bytes, did_documents: dict = None) -> dict:
+    """Mirror c2pa-rs's IcaSignatureVerifier: decode the assertion, verify the tag-18
+    COSE_Sign1 over the VC under the issuer DID's key, and cross-check that the VC's
+    c2paAsset equals the SignerPayload carried in the assertion. Returns the VC. Raises
+    on any failure. `did_documents` supplies did:web docs offline."""
+    cbor2 = _cbor()
+    assertion = cbor2.loads(assertion_bytes)
+    sp = assertion["signer_payload"]
+    if sp.get("sig_type") != CAWG_ICA_SIG_TYPE:
+        raise ValueError("signer_payload sig_type is not the ICA type")
+    tagged = cbor2.loads(assertion["signature"])
+    if not (isinstance(tagged, cbor2.CBORTag) and tagged.tag == 18):
+        raise ValueError("signature is not a tag-18 COSE_Sign1")
+    protected, _unprotected, payload, signature = tagged.value
+    ph = cbor2.loads(protected)
+    if ph.get(1) != _COSE_ALG_EDDSA:
+        raise ValueError("COSE alg is not EdDSA")
+    if ph.get(3) != _COSE_CONTENT_TYPE_VC:
+        raise ValueError("COSE content type is not application/vc")
+    vc = json.loads(payload)
+    pub = resolve_did_to_key(vc["issuer"], (did_documents or {}).get(vc["issuer"]))
+    sig_structure = cbor2.dumps(["Signature1", protected, b"", payload])
+    Ed25519PublicKey.from_public_bytes(bytes(pub)).verify(bytes(signature), sig_structure)
+    c2pa_asset = vc["credentialSubject"]["c2paAsset"]
+    if c2pa_asset.get("sig_type") != sp.get("sig_type"):
+        raise ValueError("c2paAsset sig_type does not match signer_payload")
+    sp_refs, vc_refs = sp["referenced_assertions"], c2pa_asset["referenced_assertions"]
+    if len(sp_refs) != len(vc_refs):
+        raise ValueError("c2paAsset referenced_assertions count mismatch")
+    for s, v in zip(sp_refs, vc_refs):
+        if s["url"] != v["url"] or s.get("alg") != v.get("alg"):
+            raise ValueError("c2paAsset referenced assertion url/alg mismatch")
+        if bytes(s["hash"]) != base64.b64decode(v["hash"]):
+            raise ValueError("c2paAsset referenced assertion hash mismatch")
+    if not any("c2pa.hash." in r["url"].rsplit("/", 1)[-1] for r in sp_refs):
+        raise ValueError("no hard binding assertion referenced")
+    return vc
+
+
+
+
 # --- vault operations (CLI) -----------------------------------------------------
 
 def sign_vault() -> int:
@@ -533,8 +750,38 @@ if __name__ == "__main__":
         except (ValueError, InvalidSignature, RuntimeError):
             log.info("Signed statement: INVALID")
             sys.exit(1)
+    elif command == "ica-assertion":
+        # ica-assertion <issuer:jwk|web:domain:path> <label>=<hashhex> [<label>=<hashhex> ...]
+        # Emits the CAWG identity assertion (ICA form, cawg.identity) as hex, with
+        # referenced_assertions carrying the finalized JUMBF hashes the producer passes in.
+        if len(sys.argv) < 4:
+            log.error("Usage: provenance.py ica-assertion <jwk|web:domain:path> "
+                      "<label>=<hashhex> [<label>=<hashhex> ...]")
+            sys.exit(1)
+        spec = sys.argv[2]
+        if spec == "jwk":
+            issuer = agent_did_jwk()
+        elif spec.startswith("web:"):
+            domain, _, path = spec[len("web:"):].partition(":")
+            issuer, _doc = agent_did_web(domain, path.replace(":", "/") or "agents/cogmem")
+        else:
+            log.error("issuer must be 'jwk' or 'web:domain:path'")
+            sys.exit(1)
+        refs = []
+        for pair in sys.argv[3:]:
+            label, _, hexhash = pair.partition("=")
+            if not label or not hexhash:
+                log.error("bad ref %r (want label=hashhex)", pair)
+                sys.exit(1)
+            refs.append((f"self#jumbf=c2pa.assertions/{label}", "sha256",
+                         bytes.fromhex(hexhash)))
+        vi = [agent_verified_identity(
+            "cogmem agent", "https://writersproof.com", "WritersProof",
+            id_type="writersproof.ai_agent", uri="https://writersproof.com/agents/cogmem")]
+        assertion, _vc = ica_identity_assertion(refs, issuer, vi)
+        sys.stdout.write(assertion.hex() + "\n")
     else:
         log.error("Usage: provenance.py [status | sign-vault | verify | sth | "
                   "receipt <id> | verify-receipt <file> | statement <id> | "
-                  "verify-statement <file>]")
+                  "verify-statement <file> | ica-assertion <issuer> <label>=<hash>...]")
         sys.exit(1)
