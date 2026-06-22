@@ -1,4 +1,4 @@
 # cogmem runtime dependencies
 cryptography>=49.0.0   # did:key / VC signatures / transparency log
-fastembed>=0.3.0     # local embeddings for semantic recall
+fastembed>=0.8.0     # local embeddings for semantic recall
 cbor2>=5.9.0         # COSE_Sign1 / CBOR for SCITT signed statements
