@@ -22,7 +22,8 @@ cross-verifies under independent implementations (cogmem and holographic-memory)
 - `agent-content.txt` — the asset the agent produced.
 - `agent-content.c2pa` — the signed C2PA 2.4 manifest (standalone sidecar).
 - `wp-root.pem` — the X.509 trust anchor for the claim signer (optional, for trust checks).
-- `verify.sh` — runs `c2patool` and asserts the agent identity is valid.
+- `verify.sh` — runs `c2patool`, asserts the agent identity is valid, then verifies the cognition binding.
+- `verify-cognition.py` — verifies the two embedded COSE/SCITT cognition statements (called by `verify.sh`).
 
 ## Verify it yourself
 
@@ -46,7 +47,20 @@ Expected:
 PASS: cawg.ica.credential_valid — the AI agent's identity validates.
   issuer: did:jwk:eyJjcnYiOiJFZDI1NTE5Ii…
   type:   IdentityClaimsAggregationCredential
+--- cognition binding ---
+  VERIFIED memory    cogmem.memory.provenance
+           attests: memory 'cogmem-the-recall-daemon-uses-a-relative-gap-filter-after' (rule, created)
+  VERIFIED reasoning crosstalk.orchestration.audit
+           attests: session 'sample-session-001', 12 turns, audit_root d85641ed2f3db775…
+PASS: both cognition statements verify — identity is bound to real memory and reasoning.
 ```
+
+The first `PASS` is c2patool validating the agent's CAWG identity. The second proves
+that identity is bound to the agent's *actual cognition*: a real signed memory (the rule
+that steered the output) and a real signed reasoning audit (the orchestration that
+produced it), each an independently verifiable Ed25519 COSE/SCITT statement — not a
+placeholder label. The cognition step needs the cogmem engine deps (`cbor2`,
+`cryptography`); without them it skips cleanly and the identity check still passes.
 
 Or inspect the full report directly:
 
