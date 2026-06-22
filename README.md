@@ -40,7 +40,7 @@ cogmem is one of four WritersLogic projects that compose a single verifiable age
 
 All four share one substrate — COSE_Sign1 / SCITT signed statements (Ed25519) and W3C DID identity — specified in [UNIFIED-PROVENANCE.md](https://github.com/writerslogic/cogmem/blob/main/UNIFIED-PROVENANCE.md). A cogmem agent validates in c2patool as `cawg.ica.credential_valid`, binding the agent identity to both its memory (cogmem) and reasoning (crosstalk), each independently cross-verifiable by holographic-memory.
 
-**Verify it yourself:** [`examples/c2pa-agent-credential/`](examples/c2pa-agent-credential/) is a real signed C2PA manifest whose agent identity validates in `c2patool` — run `verify.sh`. The standards gap it surfaced (no CAWG `verifiedIdentities` type for an AI agent) is written up as a proposal in [`docs/proposals/cawg-ai-agent-verified-identity.md`](docs/proposals/cawg-ai-agent-verified-identity.md).
+**Verify it yourself:** [`examples/c2pa-agent-credential/`](examples/c2pa-agent-credential/) is a real signed C2PA manifest whose agent identity validates in `c2patool` — run `verify.sh`. The binding uses only standard CAWG mechanisms (the agent is a named actor identified by its issuer DID; the operator is attested with the standard `cawg.affiliation` type). The open question — a standard, portable AI-agent *identity* credential — belongs at the identity layer (W3C VC / DIF Trusted AI Agents WG), not in CAWG/C2PA; it's written up in [`docs/proposals/ai-agent-identity-for-content-provenance.md`](docs/proposals/ai-agent-identity-for-content-provenance.md).
 
 ## Why cogmem is different
 

@@ -38,7 +38,7 @@ def main() -> int:
         issuer = pv.agent_did_jwk()
         vi = [pv.agent_verified_identity(
             "cogmem agent", "https://writersproof.com", "WritersProof",
-            id_type="writersproof.ai_agent", verified_at=VALID_FROM,
+            id_type="cawg.affiliation", verified_at=VALID_FROM,
             uri="https://writersproof.com/agents/cogmem")]
         assertion, vc = pv.ica_identity_assertion(REFS, issuer, vi, valid_from=VALID_FROM)
         assert pv.verify_ica_assertion(assertion)["issuer"] == issuer

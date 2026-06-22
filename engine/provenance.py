@@ -537,8 +537,11 @@ def _ica_signer_payloads(refs: list):
 def agent_verified_identity(display_name: str, provider_id: str, provider_name: str,
                             id_type: str, verified_at: str = None, uri: str = None) -> dict:
     """One entry of the VC's verifiedIdentities array. `id_type` names the verification
-    performed: no CAWG-standard type exists yet for an AI agent (the named types are
-    human-oriented), so callers pass a vendor-namespaced type pending that upstream gap."""
+    performed. The agent's operator is attested with the standard `cawg.affiliation` type
+    (provider + verifiedAt); the agent itself is identified by the ICA issuer DID, and
+    CAWG's named-actor model already permits software actors. A portable AI-agent *identity*
+    credential (what the agent is) is an identity-layer (W3C VC / DIF) concern, not a CAWG
+    one -- see docs/proposals/ai-agent-identity-for-content-provenance.md."""
     vi = {"type": id_type, "name": display_name,
           "verifiedAt": verified_at or datetime.now(timezone.utc).isoformat(),
           "provider": {"id": provider_id, "name": provider_name}}
@@ -777,7 +780,7 @@ if __name__ == "__main__":
                          bytes.fromhex(hexhash)))
         vi = [agent_verified_identity(
             "cogmem agent", "https://writersproof.com", "WritersProof",
-            id_type="writersproof.ai_agent", uri="https://writersproof.com/agents/cogmem")]
+            id_type="cawg.affiliation")]
         assertion, _vc = ica_identity_assertion(refs, issuer, vi)
         sys.stdout.write(assertion.hex() + "\n")
     else:

@@ -63,6 +63,10 @@ and the decoded `cawg.identity` credential issued by the agent's DID.
 - `validation_state` may report `signingCredential.untrusted` unless you supply
   `wp-root.pem` as a trust anchor — that's about the X.509 *claim signer*, independent of
   the CAWG agent-identity validity shown by `cawg.ica.credential_valid`.
-- There is no CAWG-standard `verifiedIdentities` *type* for an AI agent yet; this uses a
-  vendor-namespaced placeholder. See the proposal in
-  [`docs/proposals/cawg-ai-agent-verified-identity.md`](../../docs/proposals/cawg-ai-agent-verified-identity.md).
+- The agent's operator is attested with the **standard `cawg.affiliation`** verified-identity
+  type (provider + `verifiedAt`) — no vendor-namespaced placeholder. The agent itself is a
+  named actor identified by the ICA issuer DID, and CAWG's named-actor model already permits
+  software actors. What is *not* yet standard is a portable AI-agent **identity credential**
+  (what the agent is — nature, operator, model); that is an identity-layer (W3C VC / DIF
+  Trusted AI Agents WG) question, not a CAWG/C2PA one. See
+  [`docs/proposals/ai-agent-identity-for-content-provenance.md`](../../docs/proposals/ai-agent-identity-for-content-provenance.md).
