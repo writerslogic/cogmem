@@ -40,6 +40,8 @@ cogmem is one of four WritersLogic projects that compose a single verifiable age
 
 All four share one substrate — COSE_Sign1 / SCITT signed statements (Ed25519) and W3C DID identity — specified in [UNIFIED-PROVENANCE.md](https://github.com/writerslogic/cogmem/blob/main/UNIFIED-PROVENANCE.md). A cogmem agent validates in c2patool as `cawg.ica.credential_valid`, binding the agent identity to both its memory (cogmem) and reasoning (crosstalk), each independently cross-verifiable by holographic-memory.
 
+**Verify it yourself:** [`examples/c2pa-agent-credential/`](examples/c2pa-agent-credential/) is a real signed C2PA manifest whose agent identity validates in `c2patool` — run `verify.sh`. The standards gap it surfaced (no CAWG `verifiedIdentities` type for an AI agent) is written up as a proposal in [`docs/proposals/cawg-ai-agent-verified-identity.md`](docs/proposals/cawg-ai-agent-verified-identity.md).
+
 ## Why cogmem is different
 
 Chat-memory systems (Mem0, Letta, Zep) store and retrieve facts. cogmem is built for
