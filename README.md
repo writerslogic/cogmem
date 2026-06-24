@@ -1,112 +1,139 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/writerslogic/cogmem/main/assets/logo-spin-dark.gif">
-    <img src="https://raw.githubusercontent.com/writerslogic/cogmem/main/assets/logo-spin.gif" width="200" alt="cogmem">
-  </picture>
+  <img src="https://raw.githubusercontent.com/writerslogic/cogmem/main/assets/logo-spin.gif" width="200" alt="cogmem">
 </p>
 
 # cogmem
 
 [![CI](https://github.com/writerslogic/cogmem/actions/workflows/ci.yml/badge.svg)](https://github.com/writerslogic/cogmem/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
 [![W3C Verifiable Credentials](https://img.shields.io/badge/W3C-Verifiable%20Credentials-005a9c.svg)](https://www.w3.org/TR/vc-data-model-2.0/)
-[![did:key](https://img.shields.io/badge/DID-did%3Akey-005a9c.svg)](https://w3c-ccg.github.io/did-method-key/)
 [![SCITT](https://img.shields.io/badge/IETF-SCITT--style%20log-005a9c.svg)](https://datatracker.ietf.org/wg/scitt/about/)
-[![Verifiable Agent Memory](https://img.shields.io/badge/Verifiable-Agent%20Memory-16a34a.svg)](./PROVENANCE.md)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![local-first](https://img.shields.io/badge/local--first-no%20data%20leaves%20your%20machine-111827.svg)](#)
 
 **A self-improving, verifiable memory layer for AI coding agents.**
 
-cogmem learns how you work across sessions so your agent gets more accurate and more
-autonomous over time: it stops repeating mistakes, keeps a live model of each
-project, and surfaces the right lesson at the right moment. Every memory is
-cryptographically signed and tamper-evident, so a poisoned or altered memory can be
-detected and rejected before it ever steers the agent.
+cogmem learns how you work across sessions so your agent gets more accurate and more autonomous over time: it stops repeating mistakes, keeps a live model of each project, and surfaces the right lesson at the right moment. Every memory is cryptographically signed and tamper-evident, so a poisoned or altered memory can be detected and rejected before it ever steers the agent.
 
-> Developed by [WritersLogic](https://github.com/writerslogic) -- local-first intelligence with no data leaving your machine.
+> Developed by [WritersLogic](https://github.com/writerslogic) — local-first intelligence, no data leaving your machine.
 
-## Part of the agent-provenance stack
+## Installation
 
-cogmem is one of four WritersLogic projects that compose a single verifiable agent-provenance pipeline — an AI agent's identity, the memory that steered it, the reasoning that produced it, and the signed output, all cryptographically bound and cross-verifiable, culminating in a C2PA Content Credential.
+```bash
+pip install cogmem
+```
 
-| Project | Role |
-|---|---|
-| **cogmem (this repo)** | Agent identity (CAWG Identity Claims Aggregation credential) + verifiable, tamper-evident memory (COSE/SCITT signed statements) |
-| [crosstalk](https://github.com/writerslogic/crosstalk) | Multi-model orchestrator; signs each turn's reasoning/orchestration audit on the shared substrate |
-| [holographic-memory](https://github.com/writerslogic/holographic-memory) | Durable holographic memory store; cross-verifies the signed statements and the C2PA agent identity |
-| WritersProof | The C2PA producer: binds identity + memory + reasoning to the signed asset and hosts the agent's did:web |
+Requires Python 3.12+ and local embedding support (fastembed, no external API needed).
 
-All four share one substrate — COSE_Sign1 / SCITT signed statements (Ed25519) and W3C DID identity — specified in [UNIFIED-PROVENANCE.md](https://github.com/writerslogic/cogmem/blob/main/UNIFIED-PROVENANCE.md). A cogmem agent validates in c2patool as `cawg.ica.credential_valid`, binding the agent identity to both its memory (cogmem) and reasoning (crosstalk), each independently cross-verifiable by holographic-memory.
+## Quick Start
 
-**Verify it yourself:** [`examples/c2pa-agent-credential/`](examples/c2pa-agent-credential/) is a real signed C2PA manifest whose agent identity validates in `c2patool` — run `verify.sh`. It proves the whole chain: the agent identity (`cawg.ica.credential_valid`) *and* its binding to real cognition — a signed cogmem memory and a signed crosstalk reasoning audit, each an independently verifiable Ed25519 COSE/SCITT statement. The binding uses only standard CAWG mechanisms (the agent is a named actor identified by its issuer DID; the operator is attested with the standard `cawg.affiliation` type). The open question — a standard, portable AI-agent *identity* credential — belongs at the identity layer (W3C VC / DIF Trusted AI Agents WG), not in CAWG/C2PA; it's written up in [`docs/proposals/ai-agent-identity-for-content-provenance.md`](docs/proposals/ai-agent-identity-for-content-provenance.md).
+```bash
+cogmem status           # health check, metrics, agent DID
+cogmem recall "..."     # surface relevant past lessons for a task
+cogmem note "..."       # record a decision or finding mid-task
+cogmem verify           # verify every memory's credential + the transparency log
+cogmem receipt <id>     # inclusion proof that a memory is committed in the signed log
+cogmem statement <id>   # COSE_Sign1 SCITT signed statement (verifiable by HMS too)
+cogmem review list      # approve always-load rules
+cogmem mcp              # run the MCP server (stdio) for any MCP client
+```
 
-## Why cogmem is different
+## MCP Integration
 
-Chat-memory systems (Mem0, Letta, Zep) store and retrieve facts. cogmem is built for
-coding agents and goes further on three axes nobody else covers:
+Run cogmem as an MCP server and connect any MCP-compatible client:
 
-- **It learns from outcomes.** A feedback loop scores whether a recalled lesson
-  actually helped, refines rules that prove wrong, and retires ones that mislead.
-- **It models its own failure modes.** cogmem tracks where *the agent itself* tends
-  to go wrong in your work and intercepts a known mistake at the tool-call boundary,
-  before it happens, not just warns afterward.
-- **Its memory is verifiable.** Each memory is a W3C Verifiable Credential signed by
-  the agent's `did:key`, recorded in a tamper-evident, SCITT-style transparency log.
-  Agent memory is an attack surface; cogmem makes it auditable and poison-resistant.
+```json
+{
+  "mcpServers": {
+    "cogmem": { "command": "cogmem", "args": ["mcp"] }
+  }
+}
+```
+
+Eight tools are exposed: `recall`, `note`, `status`, `verify`, `receipt`, `tree_head`, `progress`, `review_pending`, plus read-only resources (the live user model and per-project state).
+
+## Claude Code Integration
+
+cogmem runs automatically via Claude Code hooks — no manual invocation required:
+
+```json
+{
+  "hooks": {
+    "SessionStart":      [{ "command": "cogmem recall --session-start" }],
+    "UserPromptSubmit":  [{ "command": "cogmem recall --prompt" }],
+    "Stop":              [{ "command": "cogmem note --session-end" }],
+    "PreToolUse":        [{ "command": "cogmem guard --tool" }]
+  }
+}
+```
+
+`PreToolUse` intercepts known mistakes at the tool-call boundary before they happen.
+
+## Why cogmem?
+
+Chat-memory systems (Mem0, Letta, Zep) store and retrieve facts. cogmem is built for coding agents and goes further on three axes:
+
+**It learns from outcomes.** A feedback loop scores whether a recalled lesson actually helped, refines rules that prove wrong, and retires ones that mislead.
+
+**It models its own failure modes.** cogmem tracks where the agent tends to go wrong in your work and intercepts known mistakes at the tool-call boundary — before they happen, not afterward.
+
+**Its memory is verifiable.** Each memory is a W3C Verifiable Credential signed by the agent's `did:key`, recorded in a tamper-evident, SCITT-style transparency log. Agent memory is an attack surface; cogmem makes it auditable and poison-resistant.
 
 ## Features
 
-- **Two-layer memory** — always-loaded directives (scope-gated, human-approved) plus a
-  semantic recall tail (local cross-encoder reranking, no data leaves the machine).
-- **Outcome feedback + self-refinement** — memories earn or lose trust based on whether
-  they actually helped; contradicted rules are corrected through a safe pipeline.
-- **Self-model + guard** — a model of the agent's recurring mistakes, compiled into
-  tripwires that intercept them at the `PreToolUse` boundary.
-- **Project-state model** — a living per-project state (goal, claims, open questions,
-  blockers) that gives situational continuity and reasons across time.
-- **Cross-project progress narrative** — momentum, stalls, and dependencies across
-  projects, surfaced as alerts.
-- **Self-regulation** — recall thresholds tuned automatically against an eval harness.
-- **Verifiable Agent Memory** — `did:key` identity, W3C VC-signed memories, COSE_Sign1
-  SCITT signed statements (byte-compatible with HMS), a hash-chained transparency log with
-  signed Merkle tree head and RFC 6962 inclusion receipts, optional poison-resistance
-  enforcement. See [PROVENANCE.md](./PROVENANCE.md).
+- **Two-layer memory**: always-loaded directives (scope-gated, human-approved) plus a semantic recall tail (local cross-encoder reranking, no data leaves the machine).
+- **Outcome feedback and self-refinement**: memories earn or lose trust based on whether they actually helped; contradicted rules are corrected through a safe pipeline.
+- **Self-model and guard**: a model of the agent's recurring mistakes, compiled into tripwires that intercept them at the `PreToolUse` boundary.
+- **Project-state model**: a living per-project state (goal, claims, open questions, blockers) that gives situational continuity and reasons across time.
+- **Cross-project progress narrative**: momentum, stalls, and dependencies across projects, surfaced as alerts.
+- **Self-regulation**: recall thresholds tuned automatically against an eval harness.
+- **Verifiable Agent Memory**: `did:key` identity, W3C VC-signed memories, COSE_Sign1 SCITT signed statements (byte-compatible with HMS), a hash-chained transparency log with signed Merkle tree head and RFC 6962 inclusion receipts, optional poison-resistance enforcement. See [PROVENANCE.md](./PROVENANCE.md).
 
-## Integration
+## Verifiable Memory
 
-cogmem offers two integration modes:
+cogmem treats every stored memory as a signed artifact:
 
-- **MCP server (universal).** Run `cogmem mcp` to expose cogmem to any MCP client over
-  stdio — eight tools (`recall`, `note`, `status`, `verify`, `receipt`, `tree_head`,
-  `progress`, `review_pending`) plus read-only resources (the evolving user model and
-  each project's live state). Point a client at it with:
-  ```json
-  { "mcpServers": { "cogmem": { "command": "cogmem", "args": ["mcp"] } } }
-  ```
-- **Claude Code hooks (automatic).** SessionStart, UserPromptSubmit, Stop, and
-  PreToolUse hooks wire the full automatic experience: capture at session end, recall
-  at prompt time, and mistake interception during work.
-
-## Quickstart
+- **`did:key` identity**: each agent gets a persistent Ed25519 identity, exposed as a W3C DID.
+- **W3C Verifiable Credentials**: every memory is signed with `eddsa-jcs-2022` Data Integrity proofs.
+- **COSE_Sign1 / SCITT signed statements**: byte-identical to the envelope format used by holographic-memory and crosstalk — independently verifiable by any of the three implementations.
+- **Hash-chained transparency log**: append-only JSONL with SHA-256 chaining, a signed Merkle tree head, and RFC 6962-style inclusion receipts.
+- **Poison-resistance**: altered or injected memories fail verification and are rejected before influencing the agent.
 
 ```bash
-cogmem status        # health, metrics, agent DID
-cogmem mcp           # run the MCP server (stdio) for any MCP client
-cogmem recall "..."  # surface relevant past lessons
-cogmem note "..."    # record a decision/finding mid-task
-cogmem review list   # approve always-load rules
-cogmem verify        # verify every memory's credential + the transparency log
-cogmem receipt <id>  # inclusion proof that a memory is committed in the signed log
-cogmem statement <id># COSE_Sign1 SCITT signed statement (verifies under HMS too)
+cogmem verify              # check all memories and the log head
+cogmem receipt <memory-id> # prove a memory is in the signed log
 ```
+
+See [PROVENANCE.md](./PROVENANCE.md) for the full specification.
+
+**Verify the C2PA sample yourself:**
+
+```bash
+# examples/c2pa-agent-credential/ is a real signed C2PA manifest
+# whose agent identity validates in c2patool
+./examples/c2pa-agent-credential/verify.sh
+```
+
+This proves the whole chain: agent identity (`cawg.ica.credential_valid`) bound to real cognition — a signed cogmem memory and a signed crosstalk reasoning audit, each an independently verifiable Ed25519 COSE/SCITT statement.
 
 ## Privacy
 
-cogmem is local-first by design. Memories, embeddings, and the identity key live on
-your machine; semantic recall runs on a local model. Nothing is sent anywhere.
+cogmem is local-first by design. Memories, embeddings, and the identity key live on your machine; semantic recall runs on a local model (fastembed). Nothing is sent anywhere.
+
+## Part of the Agent-Provenance Stack
+
+cogmem is one component of the WritersLogic verifiable agent-provenance pipeline — agent identity, memory, reasoning, and signed output, cryptographically bound end to end.
+
+| Project | Role |
+|---|---|
+| **cogmem (this repo)** | Agent identity (CAWG credential) + verifiable, tamper-evident memory (COSE/SCITT) |
+| [crosstalk](https://github.com/writerslogic/crosstalk) | Multi-model orchestrator; signs each turn's reasoning/orchestration audit |
+| [holographic-memory](https://github.com/writerslogic/holographic-memory) | Durable holographic memory store; cross-verifies signed statements and agent identity |
+| WritersProof | C2PA producer: binds identity + memory + reasoning to the signed asset |
+
+All four share one substrate — COSE_Sign1 / SCITT signed statements (Ed25519) and W3C DID identity — specified in [UNIFIED-PROVENANCE.md](./UNIFIED-PROVENANCE.md).
 
 ## License
 
-Apache-2.0. See [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](./LICENSE).
