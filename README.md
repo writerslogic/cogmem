@@ -70,7 +70,8 @@ cogmem runs automatically via Claude Code hooks — no manual invocation require
 
 `PreToolUse` intercepts known mistakes at the tool-call boundary before they happen.
 
-## Why cogmem?
+<details>
+<summary><strong>Why cogmem?</strong> -- learns from outcomes, models failure modes, verifiable memory</summary>
 
 Chat-memory systems (Mem0, Letta, Zep) store and retrieve facts. cogmem is built for coding agents and goes further on three axes:
 
@@ -80,7 +81,10 @@ Chat-memory systems (Mem0, Letta, Zep) store and retrieve facts. cogmem is built
 
 **Its memory is verifiable.** Each memory is a W3C Verifiable Credential signed by the agent's `did:key`, recorded in a tamper-evident, SCITT-style transparency log. Agent memory is an attack surface; cogmem makes it auditable and poison-resistant.
 
-## Features
+</details>
+
+<details>
+<summary><strong>Features</strong> -- two-layer memory, outcome feedback, self-model, project state, cross-project narrative, self-regulation, verifiable credentials</summary>
 
 - **Two-layer memory**: always-loaded directives (scope-gated, human-approved) plus a semantic recall tail (local cross-encoder reranking, no data leaves the machine).
 - **Outcome feedback and self-refinement**: memories earn or lose trust based on whether they actually helped; contradicted rules are corrected through a safe pipeline.
@@ -90,7 +94,10 @@ Chat-memory systems (Mem0, Letta, Zep) store and retrieve facts. cogmem is built
 - **Self-regulation**: recall thresholds tuned automatically against an eval harness.
 - **Verifiable Agent Memory**: `did:key` identity, W3C VC-signed memories, COSE_Sign1 SCITT signed statements (byte-compatible with HMS), a hash-chained transparency log with signed Merkle tree head and RFC 6962 inclusion receipts, optional poison-resistance enforcement. See [PROVENANCE.md](./PROVENANCE.md).
 
-## Verifiable Memory
+</details>
+
+<details>
+<summary><strong>Verifiable Memory</strong> -- did:key identity, W3C VC, COSE/SCITT, hash-chained log, poison-resistance</summary>
 
 cogmem treats every stored memory as a signed artifact:
 
@@ -116,6 +123,8 @@ See [PROVENANCE.md](./PROVENANCE.md) for the full specification.
 ```
 
 This proves the whole chain: agent identity (`cawg.ica.credential_valid`) bound to real cognition — a signed cogmem memory and a signed crosstalk reasoning audit, each an independently verifiable Ed25519 COSE/SCITT statement.
+
+</details>
 
 ## Privacy
 
