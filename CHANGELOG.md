@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-06-26 — MCP server, SCITT statements, one-command install
+
 ### Added
 - **COSE_Sign1 SCITT signed statements** (`cogmem statement` / `verify-statement`):
   each memory is issued as a COSE_Sign1 signed statement (CBOR, Ed25519) per
@@ -28,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a CI workflow.
 - New brand identity: a neural-iris logo (recall flow) with static, animated-SVG, and
   light/dark GIF variants.
+- **Glama-grade MCP tools.** All eight tools carry a title, a structured description,
+  per-parameter documentation, honest annotations (`readOnly`/`destructive`/
+  `idempotent`/`openWorld`), and an output schema; results return as both text and
+  `structuredContent`.
+- **One-command install** (`install.sh`): idempotent setup of the virtualenv,
+  dependencies, the `cogmem` CLI, Claude Code hooks (shipped under `hooks/`), and a
+  macOS warm-recall daemon. Re-runnable to upgrade in place.
+- `glama.json` for listing in the Glama MCP directory.
+
+### Security
+- Fixed the `vault/` `.gitignore` pattern, which carried an inline comment that made
+  git treat it as literal text — the local vault and Ed25519 identity key are now
+  correctly ignored.
+- Added `SECURITY.md`.
 
 ## [2.4.0] — Verifiable Agent Memory
 

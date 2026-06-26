@@ -26,7 +26,7 @@ import provenance as pv             # noqa: E402
 ENGINE = Path(__file__).resolve().parent
 VAULT = common.VAULT
 PY = sys.executable
-SERVER = {"name": "cogmem", "version": "2.4"}
+SERVER = {"name": "cogmem", "version": "2.5"}
 DEFAULT_PROTOCOL = "2024-11-05"
 
 

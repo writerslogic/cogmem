@@ -7,7 +7,7 @@
 [![CI](https://github.com/writerslogic/cogmem/actions/workflows/ci.yml/badge.svg)](https://github.com/writerslogic/cogmem/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
-[![glama](https://glama.ai/mcp/servers/writerslogic/cogmem/badges/score.svg)](https://glama.ai/mcp/servers/writerslogic/cogmem)
+[![cogmem MCP server](https://glama.ai/mcp/servers/writerslogic/cogmem/badges/score.svg)](https://glama.ai/mcp/servers/writerslogic/cogmem)
 [![W3C Verifiable Credentials](https://img.shields.io/badge/W3C-Verifiable%20Credentials-005a9c.svg)](https://www.w3.org/TR/vc-data-model-2.0/)
 [![SCITT](https://img.shields.io/badge/IETF-SCITT--style%20log-005a9c.svg)](https://datatracker.ietf.org/wg/scitt/about/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -18,6 +18,12 @@
 cogmem learns how you work across sessions so your agent gets more accurate and more autonomous over time: it stops repeating mistakes, keeps a live model of each project, and surfaces the right lesson at the right moment. Every memory is cryptographically signed and tamper-evident, so a poisoned or altered memory can be detected and rejected before it ever steers the agent.
 
 > Developed by [WritersLogic](https://github.com/writerslogic) — local-first intelligence, no data leaving your machine.
+
+<p align="center">
+  <a href="https://glama.ai/mcp/servers/writerslogic/cogmem">
+    <img src="https://glama.ai/mcp/servers/writerslogic/cogmem/badges/card.svg" alt="cogmem MCP server" />
+  </a>
+</p>
 
 ## Installation
 
