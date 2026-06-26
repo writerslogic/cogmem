@@ -105,28 +105,141 @@ DISPATCH = {
     "progress": _tool_progress, "review_pending": _tool_review_pending,
 }
 
-_OBJ = {"type": "object", "properties": {}}
+_NOARG = {"type": "object", "properties": {}, "additionalProperties": False}
+# Honest annotations: every tool is local-first (no network/filesystem outside the
+# vault), so openWorldHint is always false. Read tools are idempotent reads.
+_RO = {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False}
+
 TOOLS = [
-    {"name": "recall", "description": "Surface relevant past memories for a query (ranked, with scores).",
+    {"name": "recall",
+     "title": "Recall Memories",
+     "description": (
+         "Surface the most relevant past lessons, decisions, and rules for a task, "
+         "ranked by semantic similarity.\n"
+         "Returns {count, memories:[{id, scope, score, text}]}, where score is rerank "
+         "confidence (higher = more relevant).\n"
+         "Use at the start of a task or whenever unsure how the user wants something "
+         "done, instead of guessing. Read-only — to save a new memory use `note`."),
      "inputSchema": {"type": "object",
-                     "properties": {"query": {"type": "string"},
-                                    "k": {"type": "integer", "default": 5},
-                                    "scope": {"type": "string", "description": "optional language/scope filter"}},
-                     "required": ["query"]}},
-    {"name": "note", "description": "Record a decision or finding into memory mid-task.",
-     "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
-    {"name": "status", "description": "Agent DID, transparency-log integrity, and current Merkle root.",
-     "inputSchema": _OBJ},
-    {"name": "verify", "description": "Verify every memory's credential and the transparency-log chain.",
-     "inputSchema": _OBJ},
-    {"name": "receipt", "description": "RFC 6962 inclusion receipt proving a memory is committed in the signed log.",
-     "inputSchema": {"type": "object", "properties": {"memory_id": {"type": "string"}}, "required": ["memory_id"]}},
-    {"name": "tree_head", "description": "Current signed Merkle tree head (the log's signed commitment).",
-     "inputSchema": _OBJ},
-    {"name": "progress", "description": "Cross-project progress narrative: momentum, stalls, dependencies.",
-     "inputSchema": _OBJ},
-    {"name": "review_pending", "description": "List always-load rules awaiting human approval.",
-     "inputSchema": _OBJ},
+                     "properties": {
+                         "query": {"type": "string",
+                                   "description": "Natural-language description of the task or question to find lessons for, e.g. 'how does the user want commit messages formatted'."},
+                         "k": {"type": "integer", "default": 5, "minimum": 1, "maximum": 20,
+                               "description": "Maximum number of memories to return (1-20). Defaults to 5."},
+                         "scope": {"type": "string",
+                                   "description": "Optional domain filter, e.g. 'rust', 'python', 'universal'. Omit to search every scope."}},
+                     "required": ["query"], "additionalProperties": False},
+     "outputSchema": {"type": "object",
+                      "properties": {"count": {"type": "integer"},
+                                     "memories": {"type": "array", "items": {
+                                         "type": "object",
+                                         "properties": {"id": {"type": "string"}, "scope": {"type": "string"},
+                                                        "score": {"type": "number"}, "text": {"type": "string"}}}}},
+                      "required": ["count", "memories"]},
+     "annotations": _RO},
+
+    {"name": "note",
+     "title": "Note a Memory",
+     "description": (
+         "Record a decision, finding, or correction into memory mid-task so it can be "
+         "recalled in future sessions.\n"
+         "Returns {ok, noted}. The text is captured as a candidate and deduped against "
+         "existing knowledge by the background pipeline.\n"
+         "Use when the user states a durable preference or you learn something worth "
+         "keeping; not for transient chatter. To retrieve memories use `recall`."),
+     "inputSchema": {"type": "object",
+                     "properties": {"text": {"type": "string",
+                                             "description": "The lesson to remember, as one self-contained sentence, e.g. 'The user prefers Conventional Commits with no body.'"}},
+                     "required": ["text"], "additionalProperties": False},
+     "outputSchema": {"type": "object",
+                      "properties": {"ok": {"type": "boolean"}, "noted": {"type": "string"}},
+                      "required": ["ok"]},
+     "annotations": {"readOnlyHint": False, "destructiveHint": False,
+                     "idempotentHint": False, "openWorldHint": False}},
+
+    {"name": "status",
+     "title": "Memory System Status",
+     "description": (
+         "Report the health of the verifiable-memory system.\n"
+         "Returns {agentDid, logEntries, logIntegrity, merkleRoot} — the agent's "
+         "did:key identity, transparency-log size, its integrity ('ok' or a reason), "
+         "and the current Merkle root.\n"
+         "Use for a fast health/identity check. For a full per-memory credential audit "
+         "use `verify`; for the signed log commitment use `tree_head`."),
+     "inputSchema": _NOARG,
+     "outputSchema": {"type": "object",
+                      "properties": {"agentDid": {"type": "string"}, "logEntries": {"type": "integer"},
+                                     "logIntegrity": {"type": "string"}, "merkleRoot": {"type": "string"}},
+                      "required": ["agentDid", "logIntegrity", "merkleRoot"]},
+     "annotations": _RO},
+
+    {"name": "verify",
+     "title": "Verify All Memories",
+     "description": (
+         "Cryptographically verify every stored memory's W3C Verifiable Credential and "
+         "the integrity of the hash-chained transparency log.\n"
+         "Returns a summary of memories checked, how many are valid, and any failure "
+         "reasons.\n"
+         "Use to detect tampered or poisoned memories before trusting them. This is the "
+         "deep audit; `status` is the lightweight check."),
+     "inputSchema": _NOARG,
+     "outputSchema": {"type": "object", "additionalProperties": True},
+     "annotations": _RO},
+
+    {"name": "receipt",
+     "title": "Memory Inclusion Receipt",
+     "description": (
+         "Produce an RFC 6962-style cryptographic proof that a specific memory is "
+         "committed in the signed transparency log.\n"
+         "Returns the inclusion receipt (leaf index, audit path, tree size, signed root).\n"
+         "Use to prove to a third party that a memory existed and was logged. Requires "
+         "the memory's id — get ids from `recall`."),
+     "inputSchema": {"type": "object",
+                     "properties": {"memory_id": {"type": "string",
+                                                  "description": "The id of the memory to prove inclusion for, as returned in a recall result's `id` field."}},
+                     "required": ["memory_id"], "additionalProperties": False},
+     "outputSchema": {"type": "object", "additionalProperties": True},
+     "annotations": _RO},
+
+    {"name": "tree_head",
+     "title": "Signed Tree Head",
+     "description": (
+         "Return the current signed Merkle tree head — the log's tamper-evident "
+         "commitment to every memory so far.\n"
+         "Returns {rootHash, treeSize, signature, ...}.\n"
+         "Use as the anchor a verifier checks inclusion receipts against, or to detect "
+         "log forks. Pair with `receipt`."),
+     "inputSchema": _NOARG,
+     "outputSchema": {"type": "object",
+                      "properties": {"rootHash": {"type": "string"}, "treeSize": {"type": "integer"}},
+                      "additionalProperties": True},
+     "annotations": _RO},
+
+    {"name": "progress",
+     "title": "Cross-Project Progress",
+     "description": (
+         "Summarize momentum, stalls, and dependencies across the user's projects as a "
+         "narrative.\n"
+         "Returns {narrative}.\n"
+         "Use to orient at session start or when the user asks 'where are we'. Read-only "
+         "synthesis of project-state memory."),
+     "inputSchema": _NOARG,
+     "outputSchema": {"type": "object", "properties": {"narrative": {"type": "string"}},
+                      "required": ["narrative"]},
+     "annotations": _RO},
+
+    {"name": "review_pending",
+     "title": "List Pending Approvals",
+     "description": (
+         "List always-load (Layer-A) rules awaiting human approval before they enter the "
+         "always-on context.\n"
+         "Returns {pending}.\n"
+         "Use to see what the system wants to promote. Approval itself is a human action "
+         "via the `cogmem review` CLI, not this tool."),
+     "inputSchema": _NOARG,
+     "outputSchema": {"type": "object", "properties": {"pending": {"type": "string"}},
+                      "required": ["pending"]},
+     "annotations": _RO},
 ]
 
 
@@ -189,7 +302,8 @@ def _handle(req):
             return _error(rid, -32602, f"unknown tool: {params.get('name')}")
         try:
             data = fn(params.get("arguments") or {})
-            return _result(rid, {"content": [{"type": "text", "text": json.dumps(data, indent=2)}]})
+            return _result(rid, {"content": [{"type": "text", "text": json.dumps(data)}],
+                                 "structuredContent": data})
         except Exception as exc:                               # noqa: BLE001 — tool boundary
             return _result(rid, {"content": [{"type": "text", "text": f"error: {exc}"}],
                                  "isError": True})
