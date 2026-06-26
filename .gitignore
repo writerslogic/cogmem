@@ -1,6 +1,8 @@
 # ── Personal / runtime data — NEVER commit ───────────────────────────────────
 # The live system stores private memories and a secret identity key here.
-vault/                 # memories, credentials, AND the Ed25519 private key
+# vault/ holds memories, credentials, AND the Ed25519 private key — keep the
+# pattern on its own line; an inline comment makes git treat it as literal text.
+vault/
 episodes/
 hypotheses/
 activations/
