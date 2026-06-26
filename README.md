@@ -21,10 +21,23 @@ cogmem learns how you work across sessions so your agent gets more accurate and 
 ## Installation
 
 ```bash
-pip install cogmem
+git clone https://github.com/writerslogic/cogmem.git
+cd cogmem
+./install.sh
 ```
 
-Requires Python 3.12+ and local embedding support (fastembed, no external API needed).
+Or in one line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/writerslogic/cogmem/main/install.sh | bash
+```
+
+`install.sh` is idempotent — run it again any time to upgrade in place. It sets up
+the code under `~/.claude/cogmem`, a self-contained virtualenv with dependencies,
+the `cogmem` CLI on your PATH, the Claude Code hooks, and (on macOS) a warm recall
+daemon. Requires **Python 3.12+**; semantic recall runs on a local model
+(fastembed, no external API). Pass `--no-daemon` or `--no-hooks` to skip those
+steps; set `COGMEM_HOME` to install elsewhere.
 
 ## Quick Start
 
@@ -55,20 +68,21 @@ Eight tools are exposed: `recall`, `note`, `status`, `verify`, `receipt`, `tree_
 
 ## Claude Code Integration
 
-cogmem runs automatically via Claude Code hooks — no manual invocation required:
+`install.sh` wires cogmem into Claude Code automatically (idempotently merged into
+`~/.claude/settings.json`) — no manual invocation required. Five hooks make the
+memory loop run in the background:
 
-```json
-{
-  "hooks": {
-    "SessionStart":      [{ "command": "cogmem recall --session-start" }],
-    "UserPromptSubmit":  [{ "command": "cogmem recall --prompt" }],
-    "Stop":              [{ "command": "cogmem note --session-end" }],
-    "PreToolUse":        [{ "command": "cogmem guard --tool" }]
-  }
-}
-```
+| Event | Hook | What it does |
+|---|---|---|
+| `SessionStart` | `cogmem-activate.sh` | injects promoted always-load (Layer-A) rules + the self-check |
+| `UserPromptSubmit` | `cogmem-recall.sh` | semantic Layer-B recall for the current prompt |
+| `PreToolUse(Bash)` | `cogmem-guard.sh` | intercepts known mistakes at the tool-call boundary before they happen |
+| `PostToolUse(Edit\|Write)` | `cogmem-context.sh` | tracks which files the session is actively editing |
+| `Stop` | `cogmem-capture.sh` | captures the session into memory (acquisition + consolidation) |
 
-`PreToolUse` intercepts known mistakes at the tool-call boundary before they happen.
+Every hook is strictly fail-open: any error, timeout, or cold daemon injects
+nothing and never blocks your prompt. The scripts live in `~/.claude/cogmem/hooks/`;
+re-run `install.sh` (or `./install.sh --no-daemon`) to refresh the wiring.
 
 <details>
 <summary><strong>Why cogmem?</strong> -- learns from outcomes, models failure modes, verifiable memory</summary>

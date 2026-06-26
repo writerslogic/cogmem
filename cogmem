@@ -2,11 +2,16 @@
 # cogmem — single entry point for the cognitive memory system.
 #   cogmem review [list|promote <id>|reject <id>]   approve/decline Layer-A rules
 #   cogmem status                                    health summary
+#   cogmem recall "<text>" | note "<text>"           query / record a memory
+#   cogmem guard "<command>"                          check a command against tripwires
+#   cogmem mcp                                        run the MCP server (stdio)
 #   cogmem capture <transcript>                      manual acquisition
 #   cogmem consolidate | index                       run a stage by hand
+# Honors $COGMEM_HOME (default ~/.claude/cogmem).
 set -uo pipefail
 
-ENGINE="$HOME/.claude/cogmem/engine"
+COGMEM_HOME="${COGMEM_HOME:-$HOME/.claude/cogmem}"
+ENGINE="$COGMEM_HOME/engine"
 PY="$ENGINE/.venv/bin/python3"
 [[ -x "$PY" ]] || PY="python3"
 
@@ -26,6 +31,7 @@ case "$cmd" in
       echo "(no relevant memories)"
     fi ;;
   capture)     exec "$PY" "$ENGINE/acquire.py" "$@" ;;
+  guard)       exec "$PY" "$ENGINE/guard.py" "$@" ;;
   ingest)      exec "$PY" "$ENGINE/artifacts.py" "$@" ;;
   tune)        exec "$PY" "$ENGINE/tune.py" "$@" ;;
   provenance)  exec "$PY" "$ENGINE/provenance.py" "$@" ;;
@@ -39,10 +45,10 @@ case "$cmd" in
   status)
     "$PY" "$ENGINE/metrics.py"
     pgrep -f "$ENGINE/daemon.py" >/dev/null && echo "Daemon:                   warm" || echo "Daemon:                   cold (lazy-spawns)"
-    PEND=$(ls "$HOME/.claude/cogmem/vault/pending" 2>/dev/null | wc -l | tr -d ' ')
+    PEND=$(ls "$COGMEM_HOME/vault/pending" 2>/dev/null | wc -l | tr -d ' ')
     [[ "$PEND" -gt 0 ]] && echo "-> $PEND rule(s) await approval: cogmem review list"
     ;;
   *)
-    echo "Usage: cogmem [review|status|capture <t>|consolidate|index]" >&2
+    echo "Usage: cogmem [status|recall|note|guard|review|capture|mcp|consolidate|index|verify]" >&2
     exit 1 ;;
 esac
