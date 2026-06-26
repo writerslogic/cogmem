@@ -19,11 +19,7 @@ cogmem learns how you work across sessions so your agent gets more accurate and 
 
 > Developed by [WritersLogic](https://github.com/writerslogic) — local-first intelligence, no data leaving your machine.
 
-<p align="center">
-  <a href="https://glama.ai/mcp/servers/writerslogic/cogmem">
-    <img src="https://glama.ai/mcp/servers/writerslogic/cogmem/badges/card.svg" alt="cogmem MCP server" />
-  </a>
-</p>
+[![cogmem MCP server](https://glama.ai/mcp/servers/writerslogic/cogmem/badges/card.svg)](https://glama.ai/mcp/servers/writerslogic/cogmem)
 
 ## Installation
 
