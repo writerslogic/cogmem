@@ -1,79 +1,37 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
-
-## [2.5.0] - 2026-06-26 — MCP server, SCITT statements, one-command install
+All notable changes to this project are generated from the commit history.
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
+[Conventional Commits](https://www.conventionalcommits.org/).
+## [2.5.0] - 2026-06-26
 
 ### Added
-- **COSE_Sign1 SCITT signed statements** (`cogmem statement` / `verify-statement`):
-  each memory is issued as a COSE_Sign1 signed statement (CBOR, Ed25519) per
-  `draft-ietf-scitt-architecture`, byte-compatible with the Holographic Memory System —
-  a cogmem statement verifies under HMS's `coset` verifier (shared conformance vector in
-  `tests/vectors/`). Adds a `cbor2` dependency.
-- **MCP server** (`cogmem mcp`): a stdlib-only stdio JSON-RPC server implementing the
-  MCP `tools` and `resources` capabilities — eight tools (`recall`, `note`, `status`,
-  `verify`, `receipt`, `tree_head`, `progress`, `review_pending`) with structured
-  results, plus the user model and project states as read-only resources. Batch
-  requests, `isError` tool semantics, and standard JSON-RPC error codes.
-- **SCITT inclusion receipts.** A signed Merkle tree head commits to the whole
-  transparency log; `cogmem receipt <id>` issues an RFC 6962-style inclusion proof
-  that a memory is in the log, and `verify-receipt` checks it against the signed
-  root — third-party-verifiable membership without a full copy of the log. Backed by
-  five new tamper-rejection tests in `engine/test_provenance.py`.
-- Repository conventions: `.gitignore` (protects the local vault and identity key),
-  `.editorconfig`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `.github/` templates, and
-  a CI workflow.
-- New brand identity: a neural-iris logo (recall flow) with static, animated-SVG, and
-  light/dark GIF variants.
-- **Glama-grade MCP tools.** All eight tools carry a title, a structured description,
-  per-parameter documentation, honest annotations (`readOnly`/`destructive`/
-  `idempotent`/`openWorld`), and an output schema; results return as both text and
-  `structuredContent`.
-- **One-command install** (`install.sh`): idempotent setup of the virtualenv,
-  dependencies, the `cogmem` CLI, Claude Code hooks (shipped under `hooks/`), and a
-  macOS warm-recall daemon. Re-runnable to upgrade in place.
-- `glama.json` for listing in the Glama MCP directory.
-
-### Security
-- Fixed the `vault/` `.gitignore` pattern, which carried an inline comment that made
-  git treat it as literal text — the local vault and Ed25519 identity key are now
-  correctly ignored.
-- Added `SECURITY.md`.
-
-## [2.4.0] — Verifiable Agent Memory
-
-### Added
-- Agent identity as a `did:key` (Ed25519); each memory issued as a W3C Verifiable
-  Credential; an append-only, hash-chained, signed SCITT-style transparency log.
-- `cogmem verify` / `sign-vault`; optional poison-resistance enforcement that excludes
-  tampered or unsigned rules from the recall index.
-
-## [2.3.0] — Active defense + temporal reasoning
-
-### Added
-- PreToolUse guard: failure modes carry tripwires that intercept a known mistake at
-  the moment of action.
-- Cross-project progress narrative (`cogmem progress`): momentum, stalls, dependencies.
-
-## [2.2.0] — Stateful memory
-
-### Added
-- Living per-project state model, memory-in-the-loop (`recall` / `note`), artifact
-  grounding from git history, and self-regulation (`tune`) against an eval harness.
-
-## [2.1.0] — Learning + quality layer
-
-### Added
-- Outcome feedback loop with self-refinement, local cross-encoder recall reranking,
-  a self-model of the agent's own failure modes, and a synthesized user model.
-
-## [2.0.0] — Rebuild
+- Bring MCP tools to Glama TDQS 5/5 (titles, param docs, annotations, outputSchema, structuredContent)
+- Add idempotent installer, ship Claude Code hooks, and glama.json
+- Add did:web-issued sample alongside the offline did:jwk one
+- Prove identity-to-cognition binding in the C2PA sample
+- AIAgentCredential reference VC + security test coverage (poison-resistance, Merkle, ICA negatives) + CI soft-binding step
+- Text-fingerprint soft-binding (char-4-gram SimHash + windowed blocks) with tests and spec
+- Add CAWG Identity Claims Aggregation (ICA) agent identity with conformance vector
+- COSE_Sign1 SCITT signed statements (cbor2), byte-compatible with HMS
+- Initial public release of cogmem
 
 ### Changed
-- Rebuilt from a dead JSON+bash pipeline into a working two-layer learning loop
-  (always-load directives + semantic recall tail) over open markdown files.
+- Attest operator via standard cawg.affiliation; retarget AI-agent identity proposal to the identity layer (W3C/DIF)
+
+### Documentation
+- Restructure README with collapsible sections
+- Rewrite README — fix logo tag, add install/quick start, improve structure
+- README advertises the full runnable identity-to-cognition chain
+- Regenerate sample manifest with standard cawg.affiliation operator attestation
+- Add verifiable C2PA agent-credential sample and CAWG AI-agent identity-type proposal
+- Add agent-provenance stack cross-reference to README
+- Update changelog [skip ci]
+
+### Fixed
+- Restore curated changelog, make it release-triggered, add requirements.txt
+
+### Security
+- Move vault gitignore pattern to its own line so the private key is ignored
+- Reject non-EdDSA COSE algorithms in _cose_verify (alg confusion); add THREAT-MODEL.md
+
