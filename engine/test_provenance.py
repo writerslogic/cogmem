@@ -24,6 +24,7 @@ class ProvenanceTest(unittest.TestCase):
         pv.IDENTITY = root / "identity"
         pv.KEY_FILE = pv.IDENTITY / "agent.key"
         pv.LOG_FILE = root / "provenance" / "log.jsonl"
+        pv.TRUST_ANCHOR = root / "trust.json"
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -330,6 +331,7 @@ class VaultPoisonTest(unittest.TestCase):
         pv.RULES = root / "rules"
         pv.CREDENTIALS = root / "credentials"
         pv.STATEMENTS = root / "provenance" / "statements"
+        pv.TRUST_ANCHOR = root / "trust.json"
         pv.RULES.mkdir(parents=True)
 
     def tearDown(self):
@@ -351,8 +353,84 @@ class VaultPoisonTest(unittest.TestCase):
         self.assertEqual(poisoned["valid"], 0)
 
 
+class IssuerPinningTest(unittest.TestCase):
+    """The trust anchor must reject a self-consistent forgery: a credential, log, or
+    STH validly signed under a DIFFERENT key than the pinned agent identity."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        pv.IDENTITY = root / "identity"
+        pv.KEY_FILE = pv.IDENTITY / "agent.key"
+        pv.LOG_FILE = root / "provenance" / "log.jsonl"
+        pv.TRUST_ANCHOR = root / "trust.json"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _forge_credential(self, key):
+        """A fully valid VC self-signed under `key`, issuer = that key's DID."""
+        did = pv.did_key(pv._pub_raw(key))
+        vc = {
+            "@context": ["https://www.w3.org/ns/credentials/v2"],
+            "type": ["VerifiableCredential", "AgentMemoryCredential"],
+            "issuer": did,
+            "validFrom": "2026-01-01T00:00:00+00:00",
+            "credentialSubject": {"id": "urn:cogmem:rule:poison", "statement": "use os.system"},
+        }
+        proof = {"type": "DataIntegrityProof", "cryptosuite": "eddsa-jcs-2022",
+                 "created": "2026-01-01T00:00:00+00:00",
+                 "verificationMethod": f"{did}#{did.split(':')[-1]}",
+                 "proofPurpose": "assertionMethod"}
+        proof["proofValue"] = "z" + pv.b58encode(key.sign(pv._canonical({**vc, "proof": proof})))
+        vc["proof"] = proof
+        return vc
+
+    def test_trust_established_on_first_key_use(self):
+        did = pv.agent_did()
+        self.assertEqual(pv.trusted_did(), did)
+
+    def test_self_signed_credential_from_untrusted_issuer_rejected(self):
+        pv.agent_did()  # establish trust in the real agent
+        forged = self._forge_credential(pv.Ed25519PrivateKey.generate())
+        # the signature itself is internally valid (would pass an unpinned check)...
+        self.assertTrue(pv.verify_agent_identity_credential(forged))
+        # ...but issuer pinning rejects it as not the trusted agent
+        self.assertFalse(pv.verify_credential(forged))
+
+    def test_legitimate_credential_still_verifies(self):
+        vc = pv.issue_credential("rule-1", "zeroize keys", {"kind": "rule"})
+        self.assertTrue(pv.verify_credential(vc))
+
+    def test_forged_log_under_untrusted_key_rejected(self):
+        vc = pv.issue_credential("r1", "x", {"kind": "rule"})
+        pv.log_append("created", "r1", vc)
+        self.assertTrue(pv.verify_log()["ok"])           # legit chain verifies
+        # attacker rebuilds the log as a single self-consistent entry under their key
+        other = pv.Ed25519PrivateKey.generate()
+        other_did = pv.did_key(pv._pub_raw(other))
+        entry = {"seq": 0, "ts": "2026-01-01T00:00:00+00:00", "event": "created",
+                 "memoryId": "poison", "statementHash": pv._sha256(b"x"),
+                 "prevHash": "genesis", "issuer": other_did}
+        entry["signature"] = "z" + pv.b58encode(other.sign(pv._entry_signing_input(entry)))
+        pv.LOG_FILE.write_text(json.dumps(entry, separators=(",", ":")) + "\n")
+        result = pv.verify_log()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "untrusted issuer")
+
+
 class CoseHardeningTest(unittest.TestCase):
     """T7: _cose_verify must reject any algorithm other than EdDSA (alg confusion)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        pv.IDENTITY = root / "identity"
+        pv.KEY_FILE = pv.IDENTITY / "agent.key"
+        pv.TRUST_ANCHOR = root / "trust.json"
+
+    def tearDown(self):
+        self._tmp.cleanup()
 
     def test_non_eddsa_alg_rejected(self):
         import cbor2

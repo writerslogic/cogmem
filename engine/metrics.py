@@ -150,5 +150,55 @@ def report() -> None:
             log.info("  recalled=%d helpful=%d contra=%d  %s", r, h, c, rid)
 
 
+def _daemon_status() -> str:
+    sock = Path(__file__).resolve().parent / "recall.sock"
+    if not sock.exists():
+        return "cold (lazy-spawns on next prompt)"
+    try:
+        import socket as _socket
+        c = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        c.settimeout(1.0)
+        c.connect(str(sock))
+        c.sendall(b'{"cmd":"ping"}\n')
+        ok = b"ok" in c.recv(256)
+        c.close()
+        return "warm" if ok else "socket present but not responding"
+    except OSError:
+        return "socket present but unreachable"
+
+
+def doctor() -> None:
+    """End-to-end health of the learning loop: every link that can silently break
+    (daemon, API key, trust anchor, capture freshness, backlog) in one view."""
+    import os
+    log.info("=== cogmem doctor ===")
+    log.info("Recall daemon:        %s", _daemon_status())
+    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    log.info("ANTHROPIC_API_KEY:    %s", "present"
+             if has_key else "MISSING — capture/feedback/consolidation will no-op")
+    try:
+        import provenance as pv
+        td = pv.trusted_did()
+        log.info("Trust anchor:         %s",
+                 (td[:28] + "…") if td else "NOT established — run `cogmem status` once")
+    except Exception as e:  # noqa: BLE001 — doctor must never crash
+        log.info("Trust anchor:         unavailable (%s)", e)
+    log.info("Last capture:         %s", last_capture())
+    log.info("Pending candidates:   %d", _count(VAULT / "candidates"))
+    log.info("Awaiting approval:    %d", _count(VAULT / "pending"))
+    ra = recall_activity()
+    fb = rule_feedback()
+    log.info("Active rules:         %d", _count(VAULT / "rules"))
+    log.info("Recall injections:    %d across %d session(s)", ra["injections"], ra["sessions"])
+    log.info("Feedback:             %d recalled, %d helpful, %d contradicted",
+             fb["recalled"], fb["helpful"], fb["contradicted"])
+    import config
+    log.info("Provenance enforce:   %s",
+             "on" if config.load().get("provenance_enforce") else "off")
+
+
 if __name__ == "__main__":
-    report()
+    if "doctor" in sys.argv[1:]:
+        doctor()
+    else:
+        report()

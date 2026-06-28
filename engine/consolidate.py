@@ -23,8 +23,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import (VAULT, CLAUDE_DIR, api_call, parse_json_block, read_note,
-                    write_note, validate_note)
+from common import (
+    VAULT,
+    CLAUDE_DIR,
+    api_call,
+    parse_json_block,
+    read_note,
+    write_note,
+    validate_note,
+)
+import config
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.consolidate")
@@ -34,24 +42,62 @@ RULES = VAULT / "rules"
 PENDING = VAULT / "pending"
 REJECTED = VAULT / "rejected"
 
-JUDGE_MODEL = "claude-sonnet-4-6"
+JUDGE_MODEL = config.model("consolidate")
 
 
-def load_existing_knowledge() -> str:
+# The dedup prompt is one API call; its input must stay bounded as the vault grows,
+# or it eventually exceeds the model's context window, the call fails, and candidates
+# pile up unconsolidated forever. Curated always-on files are always included (they
+# are the authoritative dedup target); accepted rules fill the rest of the budget,
+# newest first, and candidates are classified in batches so a large backlog can't
+# blow the prompt either.
+KNOWLEDGE_BUDGET = 48_000  # chars of existing-knowledge corpus per dedup call
+BATCH = 30  # candidates classified per call
+
+
+def load_existing_knowledge(scopes: set[str] | None = None) -> str:
     """The corpus a candidate must be checked against: curated always-on files
-    plus rules already accepted into the vault."""
+    plus rules already accepted into the vault, bounded to KNOWLEDGE_BUDGET chars.
+
+    When the budget can't hold every rule, prioritize the ones most likely to be the
+    duplicate: rules sharing a candidate's scope come first (a near-duplicate almost
+    always shares scope), then most-recent. Pure recency would silently drop the older
+    same-scope rule a candidate actually duplicates, defeating the dedup."""
+    scopes = {s.lower() for s in (scopes or set())}
     parts = []
     claude_md = CLAUDE_DIR / "CLAUDE.md"
     if claude_md.exists():
         parts.append("# CLAUDE.md\n" + claude_md.read_text(errors="replace"))
     for f in sorted((CLAUDE_DIR / "modes").glob("*.md")):
         parts.append(f"# modes/{f.name}\n" + f.read_text(errors="replace"))
-    for f in sorted(RULES.glob("*.md")):
+
+    used = sum(len(p) for p in parts)
+    rules = []
+    for f in list(RULES.glob("*.md")) + list(PENDING.glob("*.md")):
         meta, body = read_note(f)
-        parts.append(f"# rule {meta.get('id', f.stem)}\n{body}")
-    for f in sorted(PENDING.glob("*.md")):
-        meta, body = read_note(f)
-        parts.append(f"# pending rule {meta.get('id', f.stem)}\n{body}")
+        rules.append((f, meta, body))
+    # In-scope first, then newest. A candidate's duplicate almost always shares scope,
+    # so an in-scope rule must never be evicted in favour of a newer out-of-scope one.
+    rules.sort(
+        key=lambda r: ((r[1].get("scope", "").lower() in scopes), r[0].stat().st_mtime),
+        reverse=True,
+    )
+    omitted = 0
+    for f, meta, body in rules:
+        kind = "pending rule" if f.parent == PENDING else "rule"
+        chunk = f"# {kind} {meta.get('id', f.stem)}\n{body}"
+        if used + len(chunk) > KNOWLEDGE_BUDGET:
+            omitted += 1
+            continue
+        parts.append(chunk)
+        used += len(chunk)
+    if omitted:
+        log.warning(
+            "Knowledge corpus capped at ~%d chars; %d lower-priority rule(s) "
+            "omitted from this dedup pass.",
+            KNOWLEDGE_BUDGET,
+            omitted,
+        )
     return "\n\n".join(parts)
 
 
@@ -96,8 +142,8 @@ Return ONLY a JSON array, one object per candidate, in the same order:
 
 def classify(candidates: list[tuple[Path, dict, str]], knowledge: str) -> dict[str, dict]:
     listing = "\n".join(
-        f'- id: {meta.get("id", f.stem)} | layer: {meta.get("layer")} | '
-        f'scope: {meta.get("scope")} | rule: {body}'
+        f"- id: {meta.get('id', f.stem)} | layer: {meta.get('layer')} | "
+        f"scope: {meta.get('scope')} | rule: {body}"
         for f, meta, body in candidates
     )
     raw = api_call(
@@ -147,18 +193,22 @@ def consolidate(dry_run: bool = False) -> dict[str, int]:
         log.info("No candidates to consolidate.")
         return {}
     log.info("Consolidating %d candidate(s)...", len(candidates))
-    knowledge = load_existing_knowledge()
-    verdicts = classify(candidates, knowledge)
-    if not verdicts:
-        log.error("Classification failed; candidates left in place for retry.")
-        return {}
-
+    cand_scopes = {meta.get("scope", "universal") for _f, meta, _b in candidates}
+    knowledge = load_existing_knowledge(cand_scopes)
     now = datetime.now(timezone.utc).isoformat()
     tally: dict[str, int] = {}
-    for f, meta, body in candidates:
-        v = verdicts.get(meta.get("id"), {"verdict": "new", "reason": "unclassified"})
-        label = route(f, meta, body, v, now, dry_run)
-        tally[label] = tally.get(label, 0) + 1
+    for i in range(0, len(candidates), BATCH):
+        batch = candidates[i : i + BATCH]
+        verdicts = classify(batch, knowledge)
+        if not verdicts:
+            log.error(
+                "Classification failed for batch %d; left in place for retry.", i // BATCH + 1
+            )
+            continue
+        for f, meta, body in batch:
+            v = verdicts.get(meta.get("id"), {"verdict": "new", "reason": "unclassified"})
+            label = route(f, meta, body, v, now, dry_run)
+            tally[label] = tally.get(label, 0) + 1
     log.info("Consolidation summary: %s", tally)
     return tally
 

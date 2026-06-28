@@ -56,8 +56,9 @@ class TestValidate(unittest.TestCase):
         self.assertIn("missing id", common.validate_note({"layer": "B"}, "text"))
 
     def test_bad_layer(self):
-        self.assertTrue(any("invalid layer" in e
-                            for e in common.validate_note({"id": "a", "layer": "Z"}, "t")))
+        self.assertTrue(
+            any("invalid layer" in e for e in common.validate_note({"id": "a", "layer": "Z"}, "t"))
+        )
 
     def test_empty_body(self):
         self.assertIn("empty body", common.validate_note({"id": "a"}, "  "))
@@ -68,8 +69,9 @@ class TestValidate(unittest.TestCase):
 
 class TestSlugify(unittest.TestCase):
     def test_basic(self):
-        self.assertEqual(slugify("Use subprocess.run, not os.system!"),
-                         "use-subprocess-run-not-os-system")
+        self.assertEqual(
+            slugify("Use subprocess.run, not os.system!"), "use-subprocess-run-not-os-system"
+        )
 
     def test_empty_fallback(self):
         self.assertEqual(slugify("!!!"), "rule")
@@ -77,20 +79,26 @@ class TestSlugify(unittest.TestCase):
 
 class TestRecallFilter(unittest.TestCase):
     def test_cosine_floor_drops_below(self):
-        rows = [{"id": "a", "score": 0.85, "rerank": 5.0},
-                {"id": "b", "score": 0.50, "rerank": 4.0}]
+        rows = [
+            {"id": "a", "score": 0.85, "rerank": 5.0},
+            {"id": "b", "score": 0.50, "rerank": 4.0},
+        ]
         kept = recall.filter_results(rows, min_score=0.62, gap=6.0)
         self.assertEqual([r["id"] for r in kept], ["a"])
 
     def test_gap_drops_far_below_best(self):
-        rows = [{"id": "a", "score": 0.80, "rerank": 7.0},
-                {"id": "b", "score": 0.70, "rerank": -9.0}]
+        rows = [
+            {"id": "a", "score": 0.80, "rerank": 7.0},
+            {"id": "b", "score": 0.70, "rerank": -9.0},
+        ]
         kept = recall.filter_results(rows, min_score=0.62, gap=6.0)
         self.assertEqual([r["id"] for r in kept], ["a"])
 
     def test_keeps_close_pair(self):
-        rows = [{"id": "a", "score": 0.80, "rerank": 2.0},
-                {"id": "b", "score": 0.70, "rerank": -1.0}]
+        rows = [
+            {"id": "a", "score": 0.80, "rerank": 2.0},
+            {"id": "b", "score": 0.70, "rerank": -1.0},
+        ]
         kept = recall.filter_results(rows, min_score=0.62, gap=6.0)
         self.assertEqual(len(kept), 2)
 
@@ -102,16 +110,20 @@ class TestRecallFilter(unittest.TestCase):
 class TestSelfModel(unittest.TestCase):
     def test_activate_filters_scope_and_sorts_by_count(self):
         import selfmodel
+
         original = selfmodel.FAILURES
         with tempfile.TemporaryDirectory() as d:
             selfmodel.FAILURES = Path(d)
             try:
-                common.write_note(Path(d) / "a.md",
-                                  {"id": "a", "scope": "universal", "count": 3}, "mistake A")
-                common.write_note(Path(d) / "b.md",
-                                  {"id": "b", "scope": "rust", "count": 1}, "mistake B")
-                common.write_note(Path(d) / "c.md",
-                                  {"id": "c", "scope": "universal", "count": 1}, "mistake C")
+                common.write_note(
+                    Path(d) / "a.md", {"id": "a", "scope": "universal", "count": 3}, "mistake A"
+                )
+                common.write_note(
+                    Path(d) / "b.md", {"id": "b", "scope": "rust", "count": 1}, "mistake B"
+                )
+                common.write_note(
+                    Path(d) / "c.md", {"id": "c", "scope": "universal", "count": 1}, "mistake C"
+                )
                 block = selfmodel.activate(["universal"])
                 self.assertIn("mistake A", block)
                 self.assertIn("mistake C", block)
@@ -125,6 +137,7 @@ class TestSelfModel(unittest.TestCase):
 class TestConfig(unittest.TestCase):
     def test_defaults_when_absent(self):
         import config
+
         original = config.CONFIG
         try:
             config.CONFIG = Path("/tmp/cogmem-nonexistent-config-xyz.json")
@@ -135,6 +148,7 @@ class TestConfig(unittest.TestCase):
 
     def test_save_load_roundtrip(self):
         import config
+
         original = config.CONFIG
         with tempfile.TemporaryDirectory() as d:
             config.CONFIG = Path(d) / "config.json"
@@ -150,6 +164,7 @@ class TestConfig(unittest.TestCase):
 class TestProjectState(unittest.TestCase):
     def test_activate_strips_comment_header(self):
         import projectstate
+
         original = projectstate.PROJECTS
         with tempfile.TemporaryDirectory() as d:
             projectstate.PROJECTS = Path(d)
@@ -166,13 +181,16 @@ class TestProjectState(unittest.TestCase):
 class TestGuard(unittest.TestCase):
     def test_tripwire_match(self):
         import guard
+
         original = guard.FAILURES
         with tempfile.TemporaryDirectory() as d:
             guard.FAILURES = Path(d)
             try:
-                common.write_note(Path(d) / "fm.md",
-                                  {"id": "fm", "tripwire": "read -a", "guard": "warn"},
-                                  "shell array breaks in zsh")
+                common.write_note(
+                    Path(d) / "fm.md",
+                    {"id": "fm", "tripwire": "read -a", "guard": "warn"},
+                    "shell array breaks in zsh",
+                )
                 hits = guard.check("while read -a x; do :; done")
                 self.assertEqual(len(hits), 1)
                 self.assertEqual(hits[0]["guard"], "warn")
@@ -184,6 +202,7 @@ class TestGuard(unittest.TestCase):
 class TestNarrative(unittest.TestCase):
     def test_stall_signal_detects_persisting_blocker(self):
         import narrative
+
         original = narrative.PROJECTS
         with tempfile.TemporaryDirectory() as d:
             narrative.PROJECTS = Path(d)
@@ -201,15 +220,97 @@ class TestNarrative(unittest.TestCase):
 
     def test_no_alert_without_blocker(self):
         import narrative
+
         original = narrative.PROJECTS
         with tempfile.TemporaryDirectory() as d:
             narrative.PROJECTS = Path(d)
             try:
                 (Path(d) / "q.history.jsonl").write_text(
-                    '{"ts": "2026-06-20T00:00:00+00:00", "blockers": "none"}\n')
+                    '{"ts": "2026-06-20T00:00:00+00:00", "blockers": "none"}\n'
+                )
                 self.assertEqual(narrative.stall_alert("q"), "")
             finally:
                 narrative.PROJECTS = original
+
+
+class TestConsolidationBudget(unittest.TestCase):
+    def test_knowledge_corpus_bounded(self):
+        import consolidate
+
+        saved = (consolidate.CLAUDE_DIR, consolidate.RULES, consolidate.PENDING)
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            rules = root / "rules"
+            rules.mkdir()
+            consolidate.CLAUDE_DIR = root / "claude"
+            consolidate.RULES = rules
+            consolidate.PENDING = root / "pending"
+            try:
+                big = "x" * 5000
+                for i in range(40):  # ~200k chars >> 48k budget
+                    common.write_note(
+                        rules / f"r{i:03}.md", {"id": f"r{i}", "layer": "B", "scope": "web"}, big
+                    )
+                # one old, in-scope rule the candidate might duplicate
+                target = rules / "rust-target.md"
+                common.write_note(
+                    target,
+                    {"id": "rust-target", "layer": "B", "scope": "rust"},
+                    "RUSTNEEDLE " + big,
+                )
+                import os
+
+                os.utime(target, (1, 1))  # make it the OLDEST file
+                corpus = consolidate.load_existing_knowledge({"rust"})
+                self.assertLess(len(corpus), consolidate.KNOWLEDGE_BUDGET + 6000)
+                # despite being oldest, the in-scope rule must survive eviction
+                self.assertIn("rust-target", corpus)
+            finally:
+                (consolidate.CLAUDE_DIR, consolidate.RULES, consolidate.PENDING) = saved
+
+
+class TestGuardHardening(unittest.TestCase):
+    def test_catastrophic_regex_does_not_hang(self):
+        import guard
+
+        with tempfile.TemporaryDirectory() as d:
+            failures = Path(d) / "failures"
+            failures.mkdir()
+            common.write_note(
+                failures / "evil.md",
+                {"id": "evil", "tripwire": "(a+)+$", "guard": "warn"},
+                "pathological pattern",
+            )
+            saved = guard.FAILURES
+            guard.FAILURES = failures
+            try:
+                import time
+
+                start = time.monotonic()
+                result = guard.check("a" * 60 + "!")  # would backtrack for ages unguarded
+                self.assertLess(time.monotonic() - start, 2.0)
+                self.assertIsInstance(result, list)
+            finally:
+                guard.FAILURES = saved
+
+    def test_normal_tripwire_still_matches(self):
+        import guard
+
+        with tempfile.TemporaryDirectory() as d:
+            failures = Path(d) / "failures"
+            failures.mkdir()
+            common.write_note(
+                failures / "rm.md",
+                {"id": "rm", "tripwire": "rm -rf /", "guard": "block"},
+                "do not wipe root",
+            )
+            saved = guard.FAILURES
+            guard.FAILURES = failures
+            try:
+                self.assertEqual(len(guard.check("rm -rf / --no-preserve-root")), 1)
+                self.assertEqual(guard.check("ls -la"), [])
+            finally:
+                guard.FAILURES = saved
 
 
 class TestFailOpen(unittest.TestCase):

@@ -31,7 +31,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
 
-from common import VAULT, read_note
+from common import VAULT, COGMEM, read_note
 
 log = logging.getLogger("cogmem.provenance")
 
@@ -41,6 +41,16 @@ IDENTITY = VAULT / "identity"
 KEY_FILE = IDENTITY / "agent.key"          # raw 32-byte Ed25519 private key (local only)
 LOG_FILE = VAULT / "provenance" / "log.jsonl"
 STATEMENTS = VAULT / "provenance" / "statements"   # COSE_Sign1 SCITT signed statements
+
+# Trust anchor: the agent DID pinned on first run. Kept OUTSIDE vault/ (one level
+# up, beside it) so an attacker who can only rewrite vault/ content — the stated
+# poison threat — cannot also forge a self-consistent chain under their own key and
+# have it verify. Verification checks each artifact's signature AND that its issuer
+# equals this pinned DID; a foreign-key forgery is rejected as an untrusted issuer.
+# Residual gap (documented in THREAT-MODEL.md): an attacker with write access to the
+# whole COGMEM_HOME, including this file, can still re-anchor — OS-keychain storage
+# is the next hardening step.
+TRUST_ANCHOR = COGMEM / "trust.json"
 
 ED25519_MULTICODEC = b"\xed\x01"           # multicodec prefix for an ed25519 public key
 _B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
@@ -78,15 +88,17 @@ def _sha256(data: bytes) -> str:
 
 def _load_or_create_key() -> Ed25519PrivateKey:
     if KEY_FILE.exists():
-        return Ed25519PrivateKey.from_private_bytes(KEY_FILE.read_bytes())
-    IDENTITY.mkdir(parents=True, exist_ok=True)
-    key = Ed25519PrivateKey.generate()
-    raw = key.private_bytes(serialization.Encoding.Raw,
-                            serialization.PrivateFormat.Raw,
-                            serialization.NoEncryption())
-    KEY_FILE.write_bytes(raw)
-    KEY_FILE.chmod(0o600)
-    log.info("Generated new agent identity key.")
+        key = Ed25519PrivateKey.from_private_bytes(KEY_FILE.read_bytes())
+    else:
+        IDENTITY.mkdir(parents=True, exist_ok=True)
+        key = Ed25519PrivateKey.generate()
+        raw = key.private_bytes(serialization.Encoding.Raw,
+                                serialization.PrivateFormat.Raw,
+                                serialization.NoEncryption())
+        KEY_FILE.write_bytes(raw)
+        KEY_FILE.chmod(0o600)
+        log.info("Generated new agent identity key.")
+    _establish_trust(did_key(_pub_raw(key)))
     return key
 
 
@@ -109,6 +121,35 @@ def pubkey_from_did(did: str) -> Ed25519PublicKey:
 
 def agent_did() -> str:
     return did_key(_pub_raw(_load_or_create_key()))
+
+
+def trusted_did() -> str | None:
+    """The pinned agent DID, or None if trust has not been established yet."""
+    try:
+        return json.loads(TRUST_ANCHOR.read_text()).get("did")
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _establish_trust(did: str) -> None:
+    """Pin `did` as the trusted issuer on first run (trust-on-first-use). A no-op
+    once an anchor exists, so an existing install keeps its original identity."""
+    if TRUST_ANCHOR.exists():
+        return
+    try:
+        TRUST_ANCHOR.parent.mkdir(parents=True, exist_ok=True)
+        TRUST_ANCHOR.write_text(json.dumps(
+            {"did": did, "established": datetime.now(timezone.utc).isoformat()}))
+        TRUST_ANCHOR.chmod(0o600)
+    except OSError as e:  # never block signing on an anchor write failure
+        log.warning("Could not write trust anchor: %s", e)
+
+
+def _issuer_trusted(issuer: str, expected: str | None) -> bool:
+    """True if `issuer` is the pinned (or explicitly expected) DID. When no anchor
+    exists yet (first run), pinning is skipped so bootstrap is not blocked."""
+    pin = expected if expected is not None else trusted_did()
+    return pin is None or issuer == pin
 
 
 # --- verifiable credentials -----------------------------------------------------
@@ -144,16 +185,18 @@ def issue_credential(memory_id: str, statement: str, meta: dict) -> dict:
     return vc
 
 
-def verify_credential(vc: dict) -> bool:
+def verify_credential(vc: dict, expected_issuer: str | None = None) -> bool:
     try:
         proof = dict(vc["proof"])
         sig = b58decode(proof.pop("proofValue")[1:])
         signing_input = _canonical({**{k: v for k, v in vc.items() if k != "proof"},
                                     "proof": proof})
         pubkey_from_did(vc["issuer"]).verify(sig, signing_input)
-        return True
     except (KeyError, ValueError, InvalidSignature, IndexError):
         return False
+    # A valid signature only proves "whoever holds this DID's key signed it"; pin the
+    # issuer to the trusted agent so a self-consistent forgery under a foreign key fails.
+    return _issuer_trusted(vc["issuer"], expected_issuer)
 
 
 # --- AI-agent identity credential (DIF identity layer) --------------------------
@@ -262,8 +305,9 @@ def log_append(event: str, memory_id: str, vc: dict) -> dict:
     return entry
 
 
-def verify_log() -> dict:
-    """Verify the whole chain: signatures valid and prevHash links unbroken."""
+def verify_log(expected_issuer: str | None = None) -> dict:
+    """Verify the whole chain: signatures valid, prevHash links unbroken, and every
+    entry issued by the trusted agent (so a chain re-signed under a foreign key fails)."""
     if not LOG_FILE.exists():
         return {"ok": True, "entries": 0}
     lines = [l for l in LOG_FILE.read_text().splitlines() if l.strip()]
@@ -277,6 +321,8 @@ def verify_log() -> dict:
             pubkey_from_did(entry["issuer"]).verify(sig, _entry_signing_input(entry))
         except (KeyError, ValueError, InvalidSignature, IndexError):
             return {"ok": False, "entries": len(lines), "broken_at": i, "reason": "bad signature"}
+        if not _issuer_trusted(entry["issuer"], expected_issuer):
+            return {"ok": False, "entries": len(lines), "broken_at": i, "reason": "untrusted issuer"}
         prev = _sha256(line.encode("utf-8"))
     return {"ok": True, "entries": len(lines)}
 
@@ -350,14 +396,14 @@ def signed_tree_head() -> dict:
     return sth
 
 
-def verify_sth(sth: dict) -> bool:
+def verify_sth(sth: dict, expected_issuer: str | None = None) -> bool:
     try:
         body = {k: v for k, v in sth.items() if k != "signature"}
         sig = b58decode(sth["signature"][1:])
         pubkey_from_did(sth["issuer"]).verify(sig, _canonical(body))
-        return True
     except (KeyError, ValueError, InvalidSignature, IndexError):
         return False
+    return _issuer_trusted(sth["issuer"], expected_issuer)
 
 
 def inclusion_receipt(memory_id: str):

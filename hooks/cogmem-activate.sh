@@ -59,7 +59,7 @@ PENDING_MSG=""
 if compgen -G "$PENDING_DIR/*.md" >/dev/null 2>&1; then
     SURFACE=true
     if [[ -f "$STAMP" ]]; then
-        AGE=$(( $(date +%s) - $(stat -f %m "$STAMP" 2>/dev/null || echo 0) ))
+        AGE=$(( $(date +%s) - $(stat -f %m "$STAMP" 2>/dev/null || stat -c %Y "$STAMP" 2>/dev/null || echo 0) ))
         [[ $AGE -lt 86400 ]] && SURFACE=false
     fi
     if $SURFACE; then

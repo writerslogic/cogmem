@@ -29,10 +29,12 @@ import logging
 import os
 import re
 import sys
-import urllib.request
-import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config
+from common import api_call, parse_json_block
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.acquire")
@@ -40,44 +42,12 @@ log = logging.getLogger("cogmem.acquire")
 COGMEM = Path(os.environ.get("COGMEM_HOME", Path.home() / ".claude" / "cogmem"))
 CANDIDATES_DIR = COGMEM / "vault" / "candidates"
 
-API_URL = "https://api.anthropic.com/v1/messages"
-DETECT_MODEL = "claude-haiku-4-5-20251001"   # cheap: runs every session
-EXTRACT_MODEL = "claude-sonnet-4-6"          # strong: runs only on signal
+DETECT_MODEL = config.model("detect")    # cheap: runs every session
+EXTRACT_MODEL = config.model("extract")  # strong: runs only on signal
 
 # Cap transcript size sent to the model. Most signal lives in user turns
 # (corrections, preferences) and assistant text; we drop thinking/tool noise.
 MAX_TRANSCRIPT_CHARS = 60_000
-
-
-def api_call(model: str, prompt: str, max_tokens: int) -> str | None:
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        log.error("ANTHROPIC_API_KEY not set")
-        return None
-    body = json.dumps({
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}],
-    }).encode()
-    req = urllib.request.Request(
-        API_URL,
-        data=body,
-        headers={
-            "x-api-key": key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read())
-        return data["content"][0]["text"]
-    except urllib.error.HTTPError as e:
-        log.error("API HTTP %s: %s", e.code, e.read()[:200])
-    except Exception as e:  # noqa: BLE001 — hook must never crash the session
-        log.error("API call failed: %s", e)
-    return None
 
 
 def extract_conversation(transcript_path: Path) -> str:
@@ -155,17 +125,6 @@ TRANSCRIPT:
 def slugify(text: str, maxlen: int = 50) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return s[:maxlen].rstrip("-") or "rule"
-
-
-def parse_json_block(text: str) -> dict | None:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        log.warning("Could not parse extractor output: %s", text[:200])
-        return None
 
 
 def write_candidate(rule: dict, session_id: str, now: str) -> Path | None:

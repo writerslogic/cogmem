@@ -1,0 +1,13 @@
+[tool.ruff]
+# The engine is stdlib-only Python; lint for real defects, not house style.
+line-length = 100
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+# E/W = pycodestyle, F = pyflakes (undefined names, unused imports — real bugs).
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # long lines: pervasive and deliberate in the prompt/docstring strings
+    "E741",  # `l` as a loop/comprehension variable is used idiomatically throughout
+    "E402",  # modules intentionally `sys.path.insert(...)` before importing siblings
+]

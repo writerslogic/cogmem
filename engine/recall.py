@@ -18,6 +18,7 @@ from pathlib import Path
 
 SOCK_PATH = Path(__file__).resolve().parent / "recall.sock"
 TIMEOUT = 1.0
+MAX_MSG = 1 << 20   # 1 MiB ceiling on the daemon response
 
 
 def filter_results(results: list[dict], min_score: float, gap: float) -> list[dict]:
@@ -38,7 +39,7 @@ def recall(query: str, k: int, scope: str | None) -> list[dict]:
     s.connect(str(SOCK_PATH))
     s.sendall((json.dumps({"query": query, "k": k, "scope": scope}) + "\n").encode())
     buf = b""
-    while b"\n" not in buf:
+    while b"\n" not in buf and len(buf) < MAX_MSG:
         chunk = s.recv(8192)
         if not chunk:
             break

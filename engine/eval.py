@@ -10,10 +10,18 @@ operating point empirically.
 The generated eval set is cached (eval_set.json) so runs are reproducible and do
 not re-call the model. Querying goes through the warm daemon.
 
+Caveat — circularity: the auto-generated positives are written FROM each rule's own
+text, so they measure "can the embedder match a paraphrase of this rule", which
+overstates real-world recall (where the user's prompt is not a paraphrase of any
+stored rule). Treat the number as an upper bound and a regression signal, not an
+absolute. For a truer measure, hand-author eval_set.json with prompts drawn from
+real sessions; an existing file is always respected (only --regen overwrites it).
+
 Usage:
-  python eval.py            # evaluate at current thresholds
-  python eval.py --sweep    # grid-search floor/gap, recommend best
-  python eval.py --regen    # regenerate the eval set from current rules
+  python eval.py                 # evaluate at the live config thresholds
+  python eval.py --floor F --gap G   # evaluate at explicit thresholds
+  python eval.py --sweep         # grid-search floor/gap, recommend best
+  python eval.py --regen         # regenerate the eval set from current rules
 """
 
 import json
@@ -23,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import VAULT, api_call, parse_json_block, read_note
+import config
 import recall
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -30,7 +39,7 @@ log = logging.getLogger("cogmem.eval")
 
 RULES = VAULT / "rules"
 EVAL_SET = Path(__file__).resolve().parent / "eval_set.json"
-GEN_MODEL = "claude-haiku-4-5-20251001"
+GEN_MODEL = config.model("eval_gen")
 
 NEGATIVES = [
     "write a haiku about the ocean",
@@ -120,6 +129,10 @@ def sweep(eval_set: dict) -> None:
              best[1], best[2], best[3]["recall_at_k"], best[3]["false_pos_rate"])
 
 
+def _arg(flag: str, default):
+    return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
+
+
 if __name__ == "__main__":
     regen = "--regen" in sys.argv
     data = load_eval_set(regen)
@@ -129,5 +142,8 @@ if __name__ == "__main__":
     if "--sweep" in sys.argv:
         sweep(data)
     else:
-        m = evaluate(data, floor=0.62, gap=6.0)
-        log.info("Recall eval @ floor=0.62 gap=6.0: %s", m)
+        cfg = config.load()
+        floor = float(_arg("--floor", cfg["recall_floor"]))
+        gap = float(_arg("--gap", cfg["recall_gap"]))
+        m = evaluate(data, floor=floor, gap=gap)
+        log.info("Recall eval @ floor=%.2f gap=%.1f (live config): %s", floor, gap, m)

@@ -21,13 +21,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import VAULT, api_call, parse_json_block, read_note, write_note
+import config
 from acquire import extract_conversation, slugify
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.selfmodel")
 
 FAILURES = VAULT / "failures"
-MODEL = "claude-sonnet-4-6"
+MODEL = config.model("selfmodel")
 
 
 def load_existing() -> list[tuple[str, str]]:

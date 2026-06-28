@@ -18,11 +18,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import indexstore
+import config
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.index")
 
-EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+EMBED_MODEL = config.embed_model()
 
 
 def build(rebuild: bool = False) -> dict:

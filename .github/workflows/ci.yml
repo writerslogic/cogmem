@@ -15,10 +15,38 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install cryptography cbor2
+        # numpy is needed to import the recall/daemon modules; fastembed loads its
+        # model lazily, so the import smoke below exercises that path without the
+        # heavyweight (and flaky) model download.
+        run: pip install cryptography cbor2 numpy
       - name: Byte-compile engine
         run: python -m compileall -q engine
+      - name: Import smoke (every engine module loads)
+        run: |
+          python - <<'PY'
+          import sys, pkgutil
+          sys.path.insert(0, "engine")
+          for m in pkgutil.iter_modules(["engine"]):
+              if m.name.startswith("test_"):
+                  continue
+              __import__(m.name)
+          print("all engine modules import OK")
+          PY
       - name: Provenance tests (credentials, transparency log, inclusion receipts)
         run: python engine/test_provenance.py
       - name: Soft-binding tests (text fingerprint)
         run: python engine/test_softbinding.py
+      - name: Engine tests (note IO, recall filter, consolidation budget, guard)
+        run: python engine/test_cogmem.py
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install ruff
+        run: pip install ruff
+      - name: Lint
+        run: ruff check .
