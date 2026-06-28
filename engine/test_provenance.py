@@ -38,16 +38,17 @@ class ProvenanceTest(unittest.TestCase):
         pv.pubkey_from_did(did).verify(sig, b"hello")  # raises if wrong
 
     def test_credential_verifies(self):
-        vc = pv.issue_credential("rule-1", "zeroize keys after use",
-                                 {"kind": "rule", "layer": "B", "scope": "rust"})
+        vc = pv.issue_credential(
+            "rule-1", "zeroize keys after use", {"kind": "rule", "layer": "B", "scope": "rust"}
+        )
         self.assertTrue(pv.verify_credential(vc))
         self.assertEqual(vc["credentialSubject"]["statement"], "zeroize keys after use")
 
     def test_tampered_credential_rejected(self):
         vc = pv.issue_credential("rule-1", "use subprocess.run", {"kind": "rule"})
         self.assertTrue(pv.verify_credential(vc))
-        vc["credentialSubject"]["statement"] = "use os.system"   # poison the memory
-        self.assertFalse(pv.verify_credential(vc))               # must be caught
+        vc["credentialSubject"]["statement"] = "use os.system"  # poison the memory
+        self.assertFalse(pv.verify_credential(vc))  # must be caught
 
     def test_credential_from_other_key_rejected(self):
         vc = pv.issue_credential("rule-1", "x", {"kind": "rule"})
@@ -61,7 +62,8 @@ class ProvenanceTest(unittest.TestCase):
     def test_agent_identity_credential_verifies(self):
         vc = pv.agent_identity_credential(
             operator_did="did:web:writersproof.com:agents:cogmem",
-            model={"name": "claude-opus-4", "version": "20260101"})
+            model={"name": "claude-opus-4", "version": "20260101"},
+        )
         self.assertTrue(pv.verify_agent_identity_credential(vc))
         self.assertIn("AIAgentCredential", vc["type"])
         self.assertEqual(vc["issuer"], "did:web:writersproof.com:agents:cogmem")
@@ -80,7 +82,7 @@ class ProvenanceTest(unittest.TestCase):
     def test_agent_identity_credential_tampered_subject_rejected(self):
         vc = pv.agent_identity_credential()
         self.assertTrue(pv.verify_agent_identity_credential(vc))
-        vc["credentialSubject"]["actorType"] = "human"     # forge the actor's nature
+        vc["credentialSubject"]["actorType"] = "human"  # forge the actor's nature
         self.assertFalse(pv.verify_agent_identity_credential(vc))
 
     def test_agent_identity_credential_cross_key_forgery_rejected(self):
@@ -104,7 +106,7 @@ class ProvenanceTest(unittest.TestCase):
             pv.log_append("created", f"rule-{i}", vc)
         lines = pv.LOG_FILE.read_text().splitlines()
         e = json.loads(lines[1])
-        e["memoryId"] = "rule-injected"          # alter a logged event
+        e["memoryId"] = "rule-injected"  # alter a logged event
         lines[1] = json.dumps(e, separators=(",", ":"))
         pv.LOG_FILE.write_text("\n".join(lines) + "\n")
         result = pv.verify_log()
@@ -114,14 +116,19 @@ class ProvenanceTest(unittest.TestCase):
     def test_forged_entry_rejected(self):
         vc = pv.issue_credential("rule-0", "lesson", {"kind": "rule"})
         pv.log_append("created", "rule-0", vc)
-        forged = {"seq": 1, "ts": "2026-01-01T00:00:00Z", "event": "created",
-                  "memoryId": "evil", "statementHash": "x",
-                  "prevHash": pv._last_entry_hash(), "issuer": pv.agent_did(),
-                  "signature": "z" + pv.b58encode(b"not a real signature here....")}
+        forged = {
+            "seq": 1,
+            "ts": "2026-01-01T00:00:00Z",
+            "event": "created",
+            "memoryId": "evil",
+            "statementHash": "x",
+            "prevHash": pv._last_entry_hash(),
+            "issuer": pv.agent_did(),
+            "signature": "z" + pv.b58encode(b"not a real signature here...."),
+        }
         with pv.LOG_FILE.open("a") as fh:
             fh.write(json.dumps(forged, separators=(",", ":")) + "\n")
         self.assertFalse(pv.verify_log()["ok"])
-
 
     def test_inclusion_receipt_verifies(self):
         for i in range(5):
@@ -150,7 +157,7 @@ class ProvenanceTest(unittest.TestCase):
             pv.log_append("created", f"rule-{i}", vc)
         receipt = pv.inclusion_receipt("rule-1")
         sib = bytearray(bytes.fromhex(receipt["auditPath"][0]))
-        sib[0] ^= 0xff                                            # corrupt the proof
+        sib[0] ^= 0xFF  # corrupt the proof
         receipt["auditPath"][0] = sib.hex()
         self.assertFalse(pv.verify_receipt(receipt))
 
@@ -160,9 +167,9 @@ class ProvenanceTest(unittest.TestCase):
             pv.log_append("created", f"rule-{i}", vc)
         receipt = pv.inclusion_receipt("rule-0")
         bad = bytearray(bytes.fromhex(receipt["sth"]["rootHash"]))
-        bad[0] ^= 0xff
-        receipt["sth"]["rootHash"] = bad.hex()                    # claim a different root
-        self.assertFalse(pv.verify_receipt(receipt))              # STH signature no longer matches
+        bad[0] ^= 0xFF
+        receipt["sth"]["rootHash"] = bad.hex()  # claim a different root
+        self.assertFalse(pv.verify_receipt(receipt))  # STH signature no longer matches
 
     # --- Merkle / receipt gaps flagged by THREAT-MODEL.md T5 ---------------------
 
@@ -172,8 +179,8 @@ class ProvenanceTest(unittest.TestCase):
         sth = pv.signed_tree_head()
         self.assertEqual(sth["treeSize"], 0)
         self.assertEqual(sth["rootHash"], hashlib.sha256(b"").hexdigest())
-        self.assertTrue(pv.verify_sth(sth))                       # signs/verifies cleanly
-        self.assertEqual(pv._mth([]).hex(), pv._mth([]).hex())    # deterministic
+        self.assertTrue(pv.verify_sth(sth))  # signs/verifies cleanly
+        self.assertEqual(pv._mth([]).hex(), pv._mth([]).hex())  # deterministic
 
     def test_receipt_wrong_treesize_rejected(self):
         for i in range(4):
@@ -188,8 +195,8 @@ class ProvenanceTest(unittest.TestCase):
         sth["treeSize"] = 99
         receipt["treeSize"] = 99
         sth["signature"] = "z" + pv.b58encode(key.sign(pv._canonical(sth)))
-        self.assertTrue(pv.verify_sth(sth))                       # STH signature is genuine
-        self.assertFalse(pv.verify_receipt(receipt))              # but the size is a lie
+        self.assertTrue(pv.verify_sth(sth))  # STH signature is genuine
+        self.assertFalse(pv.verify_receipt(receipt))  # but the size is a lie
 
     def test_receipt_second_preimage_rejected(self):
         # feed an internal node's bytes where a leaf is expected: the RFC 6962 0x00/0x01
@@ -203,16 +210,19 @@ class ProvenanceTest(unittest.TestCase):
         leaves = [l.encode("utf-8") for l in lines]
         root = pv._mth(leaves)
         internal = hashlib.sha256(
-            b"\x01" + hashlib.sha256(b"\x00" + leaves[0]).digest()
-            + hashlib.sha256(b"\x00" + leaves[1]).digest()).digest()
+            b"\x01"
+            + hashlib.sha256(b"\x00" + leaves[0]).digest()
+            + hashlib.sha256(b"\x00" + leaves[1]).digest()
+        ).digest()
         # leaf-prefixed hash of the internal node (what verify_receipt computes from a
         # supplied leaf) must NOT equal the node hash, so it cannot stand in for it
         self.assertNotEqual(hashlib.sha256(b"\x00" + internal).digest(), internal)
         # the substitution fails inclusion verification against the real root, because
         # verify_receipt always re-hashes a supplied leaf under the 0x00 prefix
         sibling = pv._mth(leaves[2:])
-        self.assertFalse(pv._verify_inclusion(
-            hashlib.sha256(b"\x00" + internal).digest(), 0, 2, [sibling], root))
+        self.assertFalse(
+            pv._verify_inclusion(hashlib.sha256(b"\x00" + internal).digest(), 0, 2, [sibling], root)
+        )
 
     def test_signed_statement_verifies(self):
         vc = pv.issue_credential("rule-9", "use subprocess.run", {"kind": "rule"})
@@ -222,27 +232,29 @@ class ProvenanceTest(unittest.TestCase):
 
     def test_signed_statement_structure_is_cose_sign1(self):
         import cbor2
+
         vc = pv.issue_credential("rule-9", "x", {"kind": "rule"})
         arr = cbor2.loads(pv.signed_statement("created", "rule-9", vc))
-        self.assertEqual(len(arr), 4)                     # [protected, {}, payload, signature]
+        self.assertEqual(len(arr), 4)  # [protected, {}, payload, signature]
         phdr = cbor2.loads(arr[0])
-        self.assertEqual(phdr[1], -8)                     # alg = EdDSA  (matches HMS)
-        self.assertEqual(phdr[3], "application/cbor")     # content type
-        self.assertEqual(len(phdr[4]), 32)                # kid = raw Ed25519 public key
+        self.assertEqual(phdr[1], -8)  # alg = EdDSA  (matches HMS)
+        self.assertEqual(phdr[3], "application/cbor")  # content type
+        self.assertEqual(len(phdr[4]), 32)  # kid = raw Ed25519 public key
 
     def test_signed_statement_tampered_rejected(self):
         vc = pv.issue_credential("rule-9", "x", {"kind": "rule"})
         cose = bytearray(pv.signed_statement("created", "rule-9", vc))
-        cose[-1] ^= 0xFF                                   # corrupt the signature
+        cose[-1] ^= 0xFF  # corrupt the signature
         with self.assertRaises(pv.InvalidSignature):
             pv.verify_signed_statement(bytes(cose))
 
     def test_signed_statement_wrong_key_rejected(self):
         import cbor2
+
         vc = pv.issue_credential("rule-9", "x", {"kind": "rule"})
         arr = cbor2.loads(pv.signed_statement("created", "rule-9", vc))
         phdr = cbor2.loads(arr[0])
-        phdr[4] = pv._pub_raw(pv.Ed25519PrivateKey.generate())   # swap in a foreign kid
+        phdr[4] = pv._pub_raw(pv.Ed25519PrivateKey.generate())  # swap in a foreign kid
         arr[0] = cbor2.dumps(phdr)
         with self.assertRaises(pv.InvalidSignature):
             pv.verify_signed_statement(cbor2.dumps(arr))
@@ -254,8 +266,12 @@ class ProvenanceTest(unittest.TestCase):
     # --- CAWG ICA conformance (shared vector, c2patool-validated) ----------------
 
     def _ica_vector(self):
-        path = (Path(__file__).resolve().parent.parent
-                / "tests" / "vectors" / "cawg-ica-credential.json")
+        path = (
+            Path(__file__).resolve().parent.parent
+            / "tests"
+            / "vectors"
+            / "cawg-ica-credential.json"
+        )
         return json.loads(path.read_text())
 
     def test_ica_assertion_verifies(self):
@@ -268,7 +284,7 @@ class ProvenanceTest(unittest.TestCase):
     def test_ica_assertion_tampered_rejected(self):
         vec = self._ica_vector()
         assertion = bytearray(bytes.fromhex(vec["identity_assertion_cbor_hex"]))
-        assertion[-1] ^= 0xFF                    # flip a byte of the assertion
+        assertion[-1] ^= 0xFF  # flip a byte of the assertion
         with self.assertRaises((ValueError, pv.InvalidSignature)):
             pv.verify_ica_assertion(bytes(assertion))
 
@@ -276,26 +292,37 @@ class ProvenanceTest(unittest.TestCase):
 
     def _build_ica(self, refs):
         issuer = pv.agent_did_jwk()
-        vi = [pv.agent_verified_identity("cogmem agent", "https://writersproof.com",
-                                         "WritersProof", id_type="cawg.affiliation")]
+        vi = [
+            pv.agent_verified_identity(
+                "cogmem agent",
+                "https://writersproof.com",
+                "WritersProof",
+                id_type="cawg.affiliation",
+            )
+        ]
         return pv.ica_identity_assertion(refs, issuer, vi)
 
     def _resign_vc(self, assertion, vc):
         import cbor2
+
         cose = pv._cose_sign1_vc(pv._load_or_create_key(), pv._canonical(vc))
         a = cbor2.loads(assertion)
-        a["signature"] = cose                     # rewrap with a freshly-signed VC
+        a["signature"] = cose  # rewrap with a freshly-signed VC
         return cbor2.dumps(a, canonical=True)
 
     def test_ica_referenced_hash_altered_rejected(self):
         # (a) a referenced-assertion hash in c2paAsset altered vs signer_payload
-        refs = [("self#jumbf=c2pa.assertions/c2pa.hash.data", "sha256", b"\x11" * 32),
-                ("self#jumbf=c2pa.assertions/cogmem.memory.provenance", "sha256", b"\x22" * 32)]
+        refs = [
+            ("self#jumbf=c2pa.assertions/c2pa.hash.data", "sha256", b"\x11" * 32),
+            ("self#jumbf=c2pa.assertions/cogmem.memory.provenance", "sha256", b"\x22" * 32),
+        ]
         assertion, vc = self._build_ica(refs)
-        self.assertTrue(pv.verify_ica_assertion(assertion))       # baseline good
+        self.assertTrue(pv.verify_ica_assertion(assertion))  # baseline good
         import base64
-        vc["credentialSubject"]["c2paAsset"]["referenced_assertions"][0]["hash"] = \
-            base64.b64encode(b"\x99" * 32).decode("ascii")
+
+        vc["credentialSubject"]["c2paAsset"]["referenced_assertions"][0]["hash"] = base64.b64encode(
+            b"\x99" * 32
+        ).decode("ascii")
         with self.assertRaises(ValueError):
             pv.verify_ica_assertion(self._resign_vc(assertion, vc))
 
@@ -308,14 +335,15 @@ class ProvenanceTest(unittest.TestCase):
 
     def test_ica_referenced_count_mismatch_rejected(self):
         # (c) referenced_assertions counts differ between c2paAsset and signer_payload
-        refs = [("self#jumbf=c2pa.assertions/c2pa.hash.data", "sha256", b"\x11" * 32),
-                ("self#jumbf=c2pa.assertions/cogmem.memory.provenance", "sha256", b"\x22" * 32)]
+        refs = [
+            ("self#jumbf=c2pa.assertions/c2pa.hash.data", "sha256", b"\x11" * 32),
+            ("self#jumbf=c2pa.assertions/cogmem.memory.provenance", "sha256", b"\x22" * 32),
+        ]
         assertion, vc = self._build_ica(refs)
         ra = vc["credentialSubject"]["c2paAsset"]["referenced_assertions"]
         vc["credentialSubject"]["c2paAsset"]["referenced_assertions"] = ra[:1]
         with self.assertRaises(ValueError):
             pv.verify_ica_assertion(self._resign_vc(assertion, vc))
-
 
 
 class VaultPoisonTest(unittest.TestCase):
@@ -339,8 +367,7 @@ class VaultPoisonTest(unittest.TestCase):
 
     def test_poisoned_rule_body_detected(self):
         rf = pv.RULES / "rule-x.md"
-        write_note(rf, {"id": "rule-x", "layer": "B", "scope": "rust"},
-                   "zeroize keys after use")
+        write_note(rf, {"id": "rule-x", "layer": "B", "scope": "rust"}, "zeroize keys after use")
         self.assertEqual(pv.sign_vault(), 1)
         clean = pv.verify_vault()
         self.assertEqual(clean["valid"], 1)
@@ -378,10 +405,13 @@ class IssuerPinningTest(unittest.TestCase):
             "validFrom": "2026-01-01T00:00:00+00:00",
             "credentialSubject": {"id": "urn:cogmem:rule:poison", "statement": "use os.system"},
         }
-        proof = {"type": "DataIntegrityProof", "cryptosuite": "eddsa-jcs-2022",
-                 "created": "2026-01-01T00:00:00+00:00",
-                 "verificationMethod": f"{did}#{did.split(':')[-1]}",
-                 "proofPurpose": "assertionMethod"}
+        proof = {
+            "type": "DataIntegrityProof",
+            "cryptosuite": "eddsa-jcs-2022",
+            "created": "2026-01-01T00:00:00+00:00",
+            "verificationMethod": f"{did}#{did.split(':')[-1]}",
+            "proofPurpose": "assertionMethod",
+        }
         proof["proofValue"] = "z" + pv.b58encode(key.sign(pv._canonical({**vc, "proof": proof})))
         vc["proof"] = proof
         return vc
@@ -405,18 +435,67 @@ class IssuerPinningTest(unittest.TestCase):
     def test_forged_log_under_untrusted_key_rejected(self):
         vc = pv.issue_credential("r1", "x", {"kind": "rule"})
         pv.log_append("created", "r1", vc)
-        self.assertTrue(pv.verify_log()["ok"])           # legit chain verifies
+        self.assertTrue(pv.verify_log()["ok"])  # legit chain verifies
         # attacker rebuilds the log as a single self-consistent entry under their key
         other = pv.Ed25519PrivateKey.generate()
         other_did = pv.did_key(pv._pub_raw(other))
-        entry = {"seq": 0, "ts": "2026-01-01T00:00:00+00:00", "event": "created",
-                 "memoryId": "poison", "statementHash": pv._sha256(b"x"),
-                 "prevHash": "genesis", "issuer": other_did}
+        entry = {
+            "seq": 0,
+            "ts": "2026-01-01T00:00:00+00:00",
+            "event": "created",
+            "memoryId": "poison",
+            "statementHash": pv._sha256(b"x"),
+            "prevHash": "genesis",
+            "issuer": other_did,
+        }
         entry["signature"] = "z" + pv.b58encode(other.sign(pv._entry_signing_input(entry)))
         pv.LOG_FILE.write_text(json.dumps(entry, separators=(",", ":")) + "\n")
         result = pv.verify_log()
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason"], "untrusted issuer")
+
+    def _swap_key(self, key):
+        pv.IDENTITY.mkdir(parents=True, exist_ok=True)
+        pv.KEY_FILE.write_bytes(
+            key.private_bytes(
+                pv.serialization.Encoding.Raw,
+                pv.serialization.PrivateFormat.Raw,
+                pv.serialization.NoEncryption(),
+            )
+        )
+
+    def test_rotation_preserves_history_and_accepts_new_key(self):
+        d1 = pv.agent_did()  # establish trust to key1
+        vc1 = pv.issue_credential("r1", "old rule", {"kind": "rule"})
+        pv.log_append("created", "r1", vc1)
+        self.assertTrue(pv.verify_log()["ok"])
+        # operator rotates the on-disk key, then re-anchors
+        self._swap_key(pv.Ed25519PrivateKey.generate())
+        d2 = pv.agent_did()
+        self.assertNotEqual(d1, d2)
+        r = pv.rotate_trust()
+        self.assertTrue(r["changed"])
+        self.assertEqual(r["to"], d2)
+        self.assertIn(d1, pv.trusted_dids())  # old DID retained
+        # the entry signed by the retired key still verifies (history not bricked)...
+        self.assertTrue(pv.verify_log()["ok"])
+        # ...and a new entry under the rotated-in key verifies too
+        vc2 = pv.issue_credential("r2", "new rule", {"kind": "rule"})
+        pv.log_append("created", "r2", vc2)
+        self.assertTrue(pv.verify_log()["ok"])
+        self.assertTrue(pv.verify_credential(vc1))
+        self.assertTrue(pv.verify_credential(vc2))
+
+    def test_rotation_idempotent_when_key_unchanged(self):
+        pv.agent_did()
+        self.assertFalse(pv.rotate_trust()["changed"])
+
+    def test_rotation_still_rejects_foreign_key(self):
+        pv.agent_did()
+        self._swap_key(pv.Ed25519PrivateKey.generate())
+        pv.rotate_trust()
+        forged = self._forge_credential(pv.Ed25519PrivateKey.generate())
+        self.assertFalse(pv.verify_credential(forged))
 
 
 class CoseHardeningTest(unittest.TestCase):
@@ -434,6 +513,7 @@ class CoseHardeningTest(unittest.TestCase):
 
     def test_non_eddsa_alg_rejected(self):
         import cbor2
+
         cose = pv.signed_statement("used", "m", pv.issue_credential("m", "x", {"kind": "rule"}))
         arr = cbor2.loads(cose)
         ph = cbor2.loads(arr[0])

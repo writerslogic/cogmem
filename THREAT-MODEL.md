@@ -108,7 +108,12 @@ current MVP proves.
    pin the issuer to a TOFU-anchored agent DID (`$COGMEM_HOME/trust.json`), so a memory or chain
    re-signed under a *foreign* key is rejected (T2). This is the meaningful gain: an attacker who can
    write only `vault/` content — the poison/sync threat — can no longer forge a self-consistent chain
-   under their own key. **Residual, unchanged:** (a) the anchor lives under `$COGMEM_HOME`, so an
+   under their own key. **Intentional key rotation** is the only supported way to change the trusted
+   identity: `cogmem trust --rotate` re-anchors to the current key and retains the prior DID in the
+   anchor's `prior` set, so history signed by the retired key still verifies while a never-trusted
+   foreign key stays rejected (`rotate_trust`; `test_rotation_preserves_history_and_accepts_new_key`).
+   A vault-content attacker cannot invoke it. **Residual, unchanged:** (a) the anchor lives under
+   `$COGMEM_HOME`, so an
    attacker with write access to the *whole* home (including `trust.json` and `agent.key`) re-anchors
    and wins — collapses to T6; OS-keychain custody of the key + anchor is the roadmap hardening. (b)
    The STH is still signed by the agent's own key — there is **no external transparency anchor**

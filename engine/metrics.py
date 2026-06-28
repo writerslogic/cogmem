@@ -24,16 +24,15 @@ log = logging.getLogger("cogmem.metrics")
 LEARNED = VAULT / "learned"
 RECALL_LOG = VAULT / ".recall-log.jsonl"
 CAPTURE_LOG = VAULT.parent / "capture.log"
-LAYER_A_TOKEN_CAP = 2000   # informational: total always-loaded rules across all scopes
-PER_SCOPE_CAP = 900        # enforced: a single scope file (what actually loads with universal)
+LAYER_A_TOKEN_CAP = 2000  # informational: total always-loaded rules across all scopes
+PER_SCOPE_CAP = 900  # enforced: a single scope file (what actually loads with universal)
 
 
 def scope_tokens(path) -> int:
     """Approx token cost of the bullet rules in one learned file."""
     if not path.exists():
         return 0
-    chars = sum(len(l) for l in path.read_text(errors="replace").splitlines()
-                if l.startswith("- "))
+    chars = sum(len(l) for l in path.read_text(errors="replace").splitlines() if l.startswith("- "))
     return chars // 4
 
 
@@ -46,16 +45,18 @@ def rule_feedback() -> dict:
     top = []
     for f in (VAULT / "rules").glob("*.md"):
         meta, _ = read_note(f)
-        h, c, r = (int(meta.get("helpful", 0)), int(meta.get("contradicted", 0)),
-                   int(meta.get("recalled", 0)))
+        h, c, r = (
+            int(meta.get("helpful", 0)),
+            int(meta.get("contradicted", 0)),
+            int(meta.get("recalled", 0)),
+        )
         helpful += h
         contradicted += c
         recalled += r
         if r:
             top.append((r, h, c, meta.get("id", f.stem)))
     top.sort(reverse=True)
-    return {"helpful": helpful, "contradicted": contradicted, "recalled": recalled,
-            "top": top[:5]}
+    return {"helpful": helpful, "contradicted": contradicted, "recalled": recalled, "top": top[:5]}
 
 
 def layer_a_budget() -> dict:
@@ -115,33 +116,55 @@ def report() -> None:
     log.info("Promoted (Layer-A src):   %d", _count(VAULT / "promoted"))
     log.info("Episodes:                 %d", _count(VAULT / "episodes"))
     log.info("")
-    log.info("Layer-A budget:           %d rules, ~%d tok / %d cap%s",
-             budget["rules"], budget["tokens_est"], budget["cap"],
-             "  !! OVER" if budget["tokens_est"] > budget["cap"] else "")
+    log.info(
+        "Layer-A budget:           %d rules, ~%d tok / %d cap%s",
+        budget["rules"],
+        budget["tokens_est"],
+        budget["cap"],
+        "  !! OVER" if budget["tokens_est"] > budget["cap"] else "",
+    )
     log.info("")
-    log.info("Feedback:                 %d recalled, %d helpful, %d contradicted",
-             fb["recalled"], fb["helpful"], fb["contradicted"])
+    log.info(
+        "Feedback:                 %d recalled, %d helpful, %d contradicted",
+        fb["recalled"],
+        fb["helpful"],
+        fb["contradicted"],
+    )
     if rej:
         log.info("Retired:                  %s", dict(rej))
     log.info("")
-    log.info("Recall activity:          %d injections, %d sessions, %d distinct rules",
-             recall["injections"], recall["sessions"], recall["rules_surfaced"])
+    log.info(
+        "Recall activity:          %d injections, %d sessions, %d distinct rules",
+        recall["injections"],
+        recall["sessions"],
+        recall["rules_surfaced"],
+    )
     failures = list((VAULT / "failures").glob("*.md")) if (VAULT / "failures").exists() else []
     recurring = sum(1 for f in failures if int(read_note(f)[0].get("count", 1)) > 1)
     guards = sum(1 for f in failures if read_note(f)[0].get("tripwire"))
-    log.info("Self-model:               %d failure modes (%d recurring, %d armed guards)",
-             len(failures), recurring, guards)
+    log.info(
+        "Self-model:               %d failure modes (%d recurring, %d armed guards)",
+        len(failures),
+        recurring,
+        guards,
+    )
     um = VAULT / "user-model.md"
     log.info("User model:               %s", "present" if um.exists() else "not yet synthesized")
     projects = list((VAULT / "projects").glob("*.md")) if (VAULT / "projects").exists() else []
     notes_log = VAULT / ".notes.jsonl"
     n_notes = len(notes_log.read_text(errors="replace").splitlines()) if notes_log.exists() else 0
-    log.info("Project states:           %d (%s)", len(projects),
-             ", ".join(p.stem for p in projects) or "none")
+    log.info(
+        "Project states:           %d (%s)",
+        len(projects),
+        ", ".join(p.stem for p in projects) or "none",
+    )
     log.info("In-loop notes recorded:   %d", n_notes)
     import config
+
     cfg = config.load()
-    log.info("Recall thresholds:        floor=%.2f gap=%.1f", cfg["recall_floor"], cfg["recall_gap"])
+    log.info(
+        "Recall thresholds:        floor=%.2f gap=%.1f", cfg["recall_floor"], cfg["recall_gap"]
+    )
     log.info("Last capture:             %s", last_capture())
     if fb["top"]:
         log.info("")
@@ -156,6 +179,7 @@ def _daemon_status() -> str:
         return "cold (lazy-spawns on next prompt)"
     try:
         import socket as _socket
+
         c = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
         c.settimeout(1.0)
         c.connect(str(sock))
@@ -171,16 +195,27 @@ def doctor() -> None:
     """End-to-end health of the learning loop: every link that can silently break
     (daemon, API key, trust anchor, capture freshness, backlog) in one view."""
     import os
+
     log.info("=== cogmem doctor ===")
     log.info("Recall daemon:        %s", _daemon_status())
     has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    log.info("ANTHROPIC_API_KEY:    %s", "present"
-             if has_key else "MISSING — capture/feedback/consolidation will no-op")
+    log.info(
+        "ANTHROPIC_API_KEY:    %s",
+        "present" if has_key else "MISSING — capture/feedback/consolidation will no-op",
+    )
     try:
         import provenance as pv
+
         td = pv.trusted_did()
-        log.info("Trust anchor:         %s",
-                 (td[:28] + "…") if td else "NOT established — run `cogmem status` once")
+        log.info(
+            "Trust anchor:         %s",
+            (td[:28] + "…") if td else "NOT established — run `cogmem status` once",
+        )
+        if td and pv.agent_did() != td:
+            log.info(
+                "  WARNING: current key DID does not match the anchor — "
+                "run `cogmem trust --rotate` if the key change was intentional"
+            )
     except Exception as e:  # noqa: BLE001 — doctor must never crash
         log.info("Trust anchor:         unavailable (%s)", e)
     log.info("Last capture:         %s", last_capture())
@@ -190,11 +225,15 @@ def doctor() -> None:
     fb = rule_feedback()
     log.info("Active rules:         %d", _count(VAULT / "rules"))
     log.info("Recall injections:    %d across %d session(s)", ra["injections"], ra["sessions"])
-    log.info("Feedback:             %d recalled, %d helpful, %d contradicted",
-             fb["recalled"], fb["helpful"], fb["contradicted"])
+    log.info(
+        "Feedback:             %d recalled, %d helpful, %d contradicted",
+        fb["recalled"],
+        fb["helpful"],
+        fb["contradicted"],
+    )
     import config
-    log.info("Provenance enforce:   %s",
-             "on" if config.load().get("provenance_enforce") else "off")
+
+    log.info("Provenance enforce:   %s", "on" if config.load().get("provenance_enforce") else "off")
 
 
 if __name__ == "__main__":
