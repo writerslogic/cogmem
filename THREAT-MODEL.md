@@ -75,7 +75,7 @@ but has no test. UNTESTED rows are the follow-up test backlog (collected in the 
 | # | Threat | Mitigation (code) | Evidence (test) |
 |---|---|---|---|
 | T1 | **Memory poisoning** — edit a rule's statement after signing to change agent behavior. | `verify_credential` recomputes the `eddsa-jcs-2022` proof over canonical VC; `verify_vault` additionally requires `credentialSubject.statement == rule body`, so an unsigned edit is a tamper; `provenance_enforce` excludes tampered/unsigned rules from recall. | `test_tampered_credential_rejected` (statement swap → false). **Partial:** `verify_vault`'s body-vs-credential match and the `provenance_enforce` recall exclusion are **UNTESTED** at this layer. |
-| T2 | **Credential forgery from another key** — re-issue a memory under a foreign DID. | `verify_credential` resolves the issuer DID to its key and verifies the proof under it; the kid is the key, so swapping the issuer breaks the signature. | `test_credential_from_other_key_rejected`. |
+| T2 | **Credential forgery from another key** — re-issue a memory under a foreign DID. | `verify_credential` verifies the proof under the issuer's key **and** pins the issuer to the trusted agent DID (`_issuer_trusted`, anchored TOFU in `$COGMEM_HOME/trust.json`, outside `vault/`). Swapping the issuer but keeping the old signature breaks the signature; *re-signing* validly under a foreign key is now also rejected as an untrusted issuer. `verify_log`/`verify_sth` pin identically, so a whole chain re-signed under a foreign key fails. | `test_credential_from_other_key_rejected`, `test_self_signed_credential_from_untrusted_issuer_rejected`, `test_forged_log_under_untrusted_key_rejected`, `test_trust_established_on_first_key_use`. |
 | T3 | **Log-chain break** — alter or delete a logged lifecycle event. | `verify_log` walks `prevHash` links (`_last_entry_hash` over the full prior line) and verifies each entry's Ed25519 signature over `_entry_signing_input`; reports `broken_at`. | `test_log_tamper_detected` (breaks at position 1), `test_log_chain_intact`. |
 | T4 | **Forged log entry** — append an entry without the agent key. | Each entry is signed over its canonical fields; `verify_log` rejects a bad signature. | `test_forged_entry_rejected`. |
 | T5 | **Forged inclusion proof** — claim membership for a memory not in the committed tree (tampered leaf, path, or root). | `verify_receipt` checks the STH signature (`verify_sth`), binds `treeSize`, and runs RFC 6962 §2.1.1 inclusion verification (`_verify_inclusion`) with leaf prefix `0x00` / node prefix `0x01`. | `test_inclusion_receipt_verifies`, `test_receipt_single_entry`, `test_receipt_tampered_leaf_rejected`, `test_receipt_tampered_path_rejected`, `test_receipt_forged_root_rejected`. **Gap:** second-preimage via leaf/node domain-prefix confusion, `treeSize`-vs-actual-leaves mismatch, and empty-tree edge cases are **UNTESTED**. |
@@ -104,13 +104,19 @@ current MVP proves.
    The roadmap item "external transparency service" (PROVENANCE.md) would partially address this; it
    is **not implemented**.
 
-3. **Self-asserted, self-signed trust anchors.** The COSE statement kid *is* the public key
-   (self-asserted); the STH is signed by the agent's own key — there is **no external transparency
-   anchor** (PROVENANCE.md roadmap item #1). An inclusion receipt proves "this memory is in *a* tree
-   the agent signed," not "in an independent, witnessed log." The ICA/C2PA claim-signer story
-   similarly leans on dev/self-signed certs in the WritersProof producer path (brief H10): **CAWG ICA
-   validity is independent of X.509 claim-signer trust**, so an ICA can read "valid" while the claim
-   signer is attacker-controlled. cogmem does not close that gap; the consuming verifier must.
+3. **Self-asserted, self-signed trust anchors.** `verify_credential`/`verify_log`/`verify_sth` now
+   pin the issuer to a TOFU-anchored agent DID (`$COGMEM_HOME/trust.json`), so a memory or chain
+   re-signed under a *foreign* key is rejected (T2). This is the meaningful gain: an attacker who can
+   write only `vault/` content — the poison/sync threat — can no longer forge a self-consistent chain
+   under their own key. **Residual, unchanged:** (a) the anchor lives under `$COGMEM_HOME`, so an
+   attacker with write access to the *whole* home (including `trust.json` and `agent.key`) re-anchors
+   and wins — collapses to T6; OS-keychain custody of the key + anchor is the roadmap hardening. (b)
+   The STH is still signed by the agent's own key — there is **no external transparency anchor**
+   (PROVENANCE.md roadmap item #1), so an inclusion receipt proves "this memory is in *a* tree the
+   agent signed," not "in an independent, witnessed log." The ICA/C2PA claim-signer story similarly
+   leans on dev/self-signed certs in the WritersProof producer path (brief H10): **CAWG ICA validity
+   is independent of X.509 claim-signer trust**, so an ICA can read "valid" while the claim signer is
+   attacker-controlled. cogmem does not close that gap; the consuming verifier must.
 
 4. **Agent-path soft binding is a non-durable SHA-256 placeholder.** The text/soft binding tying the
    agent provenance to document content is, on the agent path, a SHA-256 reference — not a keyed,

@@ -11,13 +11,13 @@
 [![W3C Verifiable Credentials](https://img.shields.io/badge/W3C-Verifiable%20Credentials-005a9c.svg)](https://www.w3.org/TR/vc-data-model-2.0/)
 [![SCITT](https://img.shields.io/badge/IETF-SCITT--style%20log-005a9c.svg)](https://datatracker.ietf.org/wg/scitt/about/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![local-first](https://img.shields.io/badge/local--first-no%20data%20leaves%20your%20machine-111827.svg)](#)
+[![local-first recall](https://img.shields.io/badge/local--first-recall%20runs%20on%20your%20machine-111827.svg)](#privacy)
 
 **A self-improving, verifiable memory layer for AI coding agents.**
 
 cogmem learns how you work across sessions so your agent gets more accurate and more autonomous over time: it stops repeating mistakes, keeps a live model of each project, and surfaces the right lesson at the right moment. Every memory is cryptographically signed and tamper-evident, so a poisoned or altered memory can be detected and rejected before it ever steers the agent.
 
-> Developed by [WritersLogic](https://github.com/writerslogic) — local-first intelligence, no data leaving your machine.
+> Developed by [WritersLogic](https://github.com/writerslogic) — local-first recall; your memory and identity key stay on your machine (see [Privacy](#privacy)).
 
 [![cogmem MCP server](https://glama.ai/mcp/servers/writerslogic/cogmem/badges/card.svg)](https://glama.ai/mcp/servers/writerslogic/cogmem)
 
@@ -231,7 +231,9 @@ This proves the whole chain: agent identity (`cawg.ica.credential_valid`) bound 
 
 ## Privacy
 
-cogmem is local-first by design. Memories, embeddings, and the identity key live on your machine; semantic recall runs on a local model (fastembed). Nothing is sent anywhere.
+cogmem is local-first by design. Memories, embeddings, and the identity key live on your machine, and **semantic recall is fully local** — the embedding and reranker models (fastembed) run on-device, so querying your memory never leaves the machine.
+
+The **learning pipeline is not local**: acquisition, consolidation, the feedback judge, and the project/user-model synthesis send the relevant session transcript to the Anthropic API (`ANTHROPIC_API_KEY`). That is how rules are extracted and scored. If you need fully-offline operation, run with `--no-hooks` (recall still works) until a local-model extraction path lands. In short: **recall is local; learning calls the API.**
 
 ## Part of the Agent-Provenance Stack
 
