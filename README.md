@@ -132,11 +132,14 @@ Or prefix with `COGMEM_HOME` in a shell wrapper:
 
 ```bash
 cogmem status           # health check, metrics, agent DID
+cogmem doctor           # end-to-end learning-loop health (daemon, API key, trust, backlog)
 cogmem recall "..."     # surface relevant past lessons for a task
 cogmem note "..."       # record a decision or finding mid-task
 cogmem verify           # verify every memory's credential + the transparency log
 cogmem receipt <id>     # inclusion proof that a memory is committed in the signed log
 cogmem statement <id>   # COSE_Sign1 SCITT signed statement (verifiable by HMS too)
+cogmem trust            # show the trusted agent identity (warns on a key mismatch)
+cogmem trust --rotate   # re-anchor trust after an intentional key change
 cogmem review list      # approve always-load rules
 cogmem mcp              # run the MCP server (stdio) for any MCP client
 ```
