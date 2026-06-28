@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import VAULT, api_call, parse_json_block, read_note, write_note
+import config
 from acquire import extract_conversation, slugify
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -32,7 +33,7 @@ REJECTED = VAULT / "rejected"
 CANDIDATES = VAULT / "candidates"
 RECALL_LOG = VAULT / ".recall-log.jsonl"
 
-JUDGE_MODEL = "claude-haiku-4-5-20251001"
+JUDGE_MODEL = config.model("judge")
 PROMOTE_HELPFUL = 3   # a Layer-B rule helpful this many times -> suggest for Layer A
 DEMOTE_CONTRA = 2     # contradicted this many times (and > helpful) -> demote
 

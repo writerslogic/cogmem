@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import VAULT, api_call
+import config
 from acquire import extract_conversation
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -30,7 +31,7 @@ log = logging.getLogger("cogmem.projectstate")
 
 PROJECTS = VAULT / "projects"
 NOTES = VAULT / ".notes.jsonl"
-MODEL = "claude-sonnet-4-6"
+MODEL = config.model("projectstate")
 ALERTS = VAULT / ".state-alerts.jsonl"
 
 

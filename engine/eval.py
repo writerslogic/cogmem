@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import VAULT, api_call, parse_json_block, read_note
+import config
 import recall
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -30,7 +31,7 @@ log = logging.getLogger("cogmem.eval")
 
 RULES = VAULT / "rules"
 EVAL_SET = Path(__file__).resolve().parent / "eval_set.json"
-GEN_MODEL = "claude-haiku-4-5-20251001"
+GEN_MODEL = config.model("eval_gen")
 
 NEGATIVES = [
     "write a haiku about the ocean",

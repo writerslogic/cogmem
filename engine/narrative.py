@@ -23,12 +23,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import VAULT, api_call
+import config
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("cogmem.narrative")
 
 PROJECTS = VAULT / "projects"
-MODEL = "claude-sonnet-4-6"
+MODEL = config.model("narrative")
 STALL_DAYS = 10   # a blocker present this long without clearing = stalled
 
 

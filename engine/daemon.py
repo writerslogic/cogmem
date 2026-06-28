@@ -27,13 +27,14 @@ import numpy as np
 ENGINE = Path(__file__).resolve().parent
 sys.path.insert(0, str(ENGINE))
 import indexstore
+import config
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.daemon")
 
 SOCK_PATH = ENGINE / "recall.sock"
-EMBED_MODEL = "BAAI/bge-small-en-v1.5"
-RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
+EMBED_MODEL = config.embed_model()
+RERANK_MODEL = config.rerank_model()
 COSINE_PREFILTER = 12   # rerank the top-N cosine candidates
 WEIGHT_NUDGE = 0.4      # how much feedback weight tips the rerank ordering
 

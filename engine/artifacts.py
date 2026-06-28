@@ -19,13 +19,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import VAULT, api_call, parse_json_block, write_note
+import config
 from acquire import slugify
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.artifacts")
 
 CANDIDATES = VAULT / "candidates"
-MODEL = "claude-sonnet-4-6"
+MODEL = config.model("artifacts")
 MAX_COMMITS = 150
 
 

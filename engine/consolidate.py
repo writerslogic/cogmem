@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (VAULT, CLAUDE_DIR, api_call, parse_json_block, read_note,
                     write_note, validate_note)
+import config
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.consolidate")
@@ -34,7 +35,7 @@ RULES = VAULT / "rules"
 PENDING = VAULT / "pending"
 REJECTED = VAULT / "rejected"
 
-JUDGE_MODEL = "claude-sonnet-4-6"
+JUDGE_MODEL = config.model("consolidate")
 
 
 # The dedup prompt is one API call; its input must stay bounded as the vault grows,

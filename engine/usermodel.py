@@ -21,12 +21,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import VAULT, api_call, read_note
+import config
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.usermodel")
 
 MODEL_FILE = VAULT / "user-model.md"
-MODEL = "claude-sonnet-4-6"
+MODEL = config.model("usermodel")
 MAX_ITEMS = 60   # cap evidence fed to the synthesizer
 
 
