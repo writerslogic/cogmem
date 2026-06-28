@@ -1,3 +1,9 @@
+# PROVENANCE.md is this project's PUBLIC provenance spec (the README links to it).
+# A global core.excludesFile ignores PROVENANCE.md everywhere (it protects a
+# confidential file of the same name in another repo); negate that here so cogmem's
+# tracked, public spec is never re-ignored.
+!PROVENANCE.md
+
 # ── Personal / runtime data — NEVER commit ───────────────────────────────────
 # The live system stores private memories and a secret identity key here.
 # vault/ holds memories, credentials, AND the Ed25519 private key — keep the
