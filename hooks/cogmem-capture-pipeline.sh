@@ -18,8 +18,11 @@ LOCK="$COGMEM/.capture.lock"
 SOCK="$ENGINE/recall.sock"
 [[ -x "$PY" ]] || PY="python3"
 
+# Portable mtime in epoch seconds: BSD stat (macOS) then GNU stat (Linux).
+mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+
 SID=$(basename "$TRANSCRIPT" .jsonl)
-MT=$(stat -f %m "$TRANSCRIPT" 2>/dev/null || echo 0)
+MT=$(mtime "$TRANSCRIPT")
 
 # Dedup: skip if this transcript was already captured at this size/mtime or later.
 if [[ -f "$CAPTURED" ]] && awk -v s="$SID" -v m="$MT" '$1==s && $2>=m{found=1} END{exit !found}' "$CAPTURED"; then
@@ -28,7 +31,7 @@ fi
 
 # Single-flight lock (mkdir is atomic). Recover locks older than 10 min (crash).
 if ! mkdir "$LOCK" 2>/dev/null; then
-    AGE=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
+    AGE=$(( $(date +%s) - $(mtime "$LOCK") ))
     if [[ $AGE -gt 600 ]]; then
         rmdir "$LOCK" 2>/dev/null && mkdir "$LOCK" 2>/dev/null || exit 0
     else
