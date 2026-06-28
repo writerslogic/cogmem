@@ -126,6 +126,7 @@ Or prefix with `COGMEM_HOME` in a shell wrapper:
     "cogmem": { "command": "env", "args": ["COGMEM_HOME=/opt/cogmem", "cogmem", "mcp"] }
   }
 }
+```
 
 ## Quick Start
 
