@@ -212,6 +212,30 @@ class TestNarrative(unittest.TestCase):
                 narrative.PROJECTS = original
 
 
+class TestConsolidationBudget(unittest.TestCase):
+    def test_knowledge_corpus_bounded(self):
+        import consolidate
+        saved = (consolidate.CLAUDE_DIR, consolidate.RULES, consolidate.PENDING)
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            rules = root / "rules"
+            rules.mkdir()
+            consolidate.CLAUDE_DIR = root / "claude"
+            consolidate.RULES = rules
+            consolidate.PENDING = root / "pending"
+            try:
+                big = "x" * 5000
+                for i in range(40):                       # ~200k chars >> 48k budget
+                    common.write_note(rules / f"r{i:03}.md",
+                                      {"id": f"r{i}", "layer": "B"}, big)
+                corpus = consolidate.load_existing_knowledge()
+                self.assertLess(len(corpus), consolidate.KNOWLEDGE_BUDGET + 6000)
+                self.assertGreater(len(corpus), 0)
+            finally:
+                (consolidate.CLAUDE_DIR, consolidate.RULES,
+                 consolidate.PENDING) = saved
+
+
 class TestFailOpen(unittest.TestCase):
     def test_recall_raises_without_socket(self):
         original = recall.SOCK_PATH

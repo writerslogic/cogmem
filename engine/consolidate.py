@@ -37,21 +37,43 @@ REJECTED = VAULT / "rejected"
 JUDGE_MODEL = "claude-sonnet-4-6"
 
 
+# The dedup prompt is one API call; its input must stay bounded as the vault grows,
+# or it eventually exceeds the model's context window, the call fails, and candidates
+# pile up unconsolidated forever. Curated always-on files are always included (they
+# are the authoritative dedup target); accepted rules fill the rest of the budget,
+# newest first, and candidates are classified in batches so a large backlog can't
+# blow the prompt either.
+KNOWLEDGE_BUDGET = 48_000   # chars of existing-knowledge corpus per dedup call
+BATCH = 30                  # candidates classified per call
+
+
 def load_existing_knowledge() -> str:
     """The corpus a candidate must be checked against: curated always-on files
-    plus rules already accepted into the vault."""
+    plus rules already accepted into the vault, bounded to KNOWLEDGE_BUDGET chars."""
     parts = []
     claude_md = CLAUDE_DIR / "CLAUDE.md"
     if claude_md.exists():
         parts.append("# CLAUDE.md\n" + claude_md.read_text(errors="replace"))
     for f in sorted((CLAUDE_DIR / "modes").glob("*.md")):
         parts.append(f"# modes/{f.name}\n" + f.read_text(errors="replace"))
-    for f in sorted(RULES.glob("*.md")):
+
+    used = sum(len(p) for p in parts)
+    # Newest rules first: recent acceptances are the likeliest near-duplicates.
+    rule_files = sorted(RULES.glob("*.md")) + sorted(PENDING.glob("*.md"))
+    rule_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    omitted = 0
+    for f in rule_files:
         meta, body = read_note(f)
-        parts.append(f"# rule {meta.get('id', f.stem)}\n{body}")
-    for f in sorted(PENDING.glob("*.md")):
-        meta, body = read_note(f)
-        parts.append(f"# pending rule {meta.get('id', f.stem)}\n{body}")
+        kind = "pending rule" if f.parent == PENDING else "rule"
+        chunk = f"# {kind} {meta.get('id', f.stem)}\n{body}"
+        if used + len(chunk) > KNOWLEDGE_BUDGET:
+            omitted += 1
+            continue
+        parts.append(chunk)
+        used += len(chunk)
+    if omitted:
+        log.warning("Knowledge corpus capped at ~%d chars; %d older rule(s) omitted "
+                    "from this dedup pass.", KNOWLEDGE_BUDGET, omitted)
     return "\n\n".join(parts)
 
 
@@ -148,17 +170,19 @@ def consolidate(dry_run: bool = False) -> dict[str, int]:
         return {}
     log.info("Consolidating %d candidate(s)...", len(candidates))
     knowledge = load_existing_knowledge()
-    verdicts = classify(candidates, knowledge)
-    if not verdicts:
-        log.error("Classification failed; candidates left in place for retry.")
-        return {}
-
     now = datetime.now(timezone.utc).isoformat()
     tally: dict[str, int] = {}
-    for f, meta, body in candidates:
-        v = verdicts.get(meta.get("id"), {"verdict": "new", "reason": "unclassified"})
-        label = route(f, meta, body, v, now, dry_run)
-        tally[label] = tally.get(label, 0) + 1
+    for i in range(0, len(candidates), BATCH):
+        batch = candidates[i:i + BATCH]
+        verdicts = classify(batch, knowledge)
+        if not verdicts:
+            log.error("Classification failed for batch %d; left in place for retry.",
+                      i // BATCH + 1)
+            continue
+        for f, meta, body in batch:
+            v = verdicts.get(meta.get("id"), {"verdict": "new", "reason": "unclassified"})
+            label = route(f, meta, body, v, now, dry_run)
+            tally[label] = tally.get(label, 0) + 1
     log.info("Consolidation summary: %s", tally)
     return tally
 
