@@ -105,9 +105,13 @@ class Recall:
                 for i, r in ranked]
 
 
+MAX_MSG = 1 << 20   # 1 MiB ceiling on a single request, so a client that never sends
+                    # a newline can't grow the buffer without bound.
+
+
 def _recv_line(conn: socket.socket) -> str:
     buf = b""
-    while b"\n" not in buf:
+    while b"\n" not in buf and len(buf) < MAX_MSG:
         chunk = conn.recv(4096)
         if not chunk:
             break
