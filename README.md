@@ -42,6 +42,92 @@ daemon. Requires **Python 3.12+**; semantic recall runs on a local model
 (fastembed, no external API). Pass `--no-daemon` or `--no-hooks` to skip those
 steps; set `COGMEM_HOME` to install elsewhere.
 
+## Custom Installation
+
+### Install to a different directory
+
+Set `COGMEM_HOME` to place cogmem somewhere other than the default
+`~/.claude/cogmem`:
+
+```bash
+COGMEM_HOME=/opt/cogmem ./install.sh
+```
+
+Or with the one-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/writerslogic/cogmem/main/install.sh | COGMEM_HOME=/opt/cogmem bash
+```
+
+The installer copies the code, creates the virtualenv, and symlinks the CLI to
+`~/.local/bin/cogmem` (or wherever `COGMEM_BIN` points).
+
+### CLI path
+
+Set `COGMEM_BIN` to control where the `cogmem` CLI symlink is placed:
+
+```bash
+COGMEM_BIN=$HOME/.cargo/bin COGMEM_HOME=/opt/cogmem ./install.sh
+```
+
+If `COGMEM_BIN` is not on your PATH, the installer prints a warning. You can
+always invoke cogmem directly from `$COGMEM_HOME/cogmem`.
+
+### How data directories and identity keys are resolved
+
+At runtime the CLI and engine read `COGMEM_HOME` from the environment. When it is
+unset they fall back to `~/.claude/cogmem`. All runtime data lives under the
+`vault/` subdirectory:
+
+| Path | Purpose |
+|------|---------|
+| `$COGMEM_HOME/vault/identity/agent.key` | Ed25519 private key (agent identity, `did:key`) |
+| `$COGMEM_HOME/vault/credentials/` | W3C Verifiable Credential storage |
+| `$COGMEM_HOME/vault/rules/` | Layer-A (always-load) and Layer-B (recall) rules |
+| `$COGMEM_HOME/vault/provenance/log.jsonl` | Append-only hash-chained transparency log |
+| `$COGMEM_HOME/vault/provenance/statements/` | COSE_Sign1 SCITT signed statements |
+| `$COGMEM_HOME/engine/.venv/` | Python virtualenv with dependencies |
+| `$COGMEM_HOME/hooks/` | Claude Code hook scripts |
+
+The identity key is generated on first run (via `cogmem status` or any engine
+operation) and persisted at `$COGMEM_HOME/vault/identity/agent.key`. The
+corresponding `did:key` is derived from the Ed25519 public key. Moving or
+reinstalling cogmem to a new `COGMEM_HOME` creates a fresh identity unless you
+migrate the `vault/` directory.
+
+### MCP client with a non-default install
+
+The standard MCP client configuration works regardless of `COGMEM_HOME` because
+the `cogmem` CLI resolves the environment variable at runtime:
+
+```json
+{
+  "mcpServers": {
+    "cogmem": { "command": "cogmem", "args": ["mcp"] }
+  }
+}
+```
+
+If the CLI is not on your PATH, use the full path:
+
+```json
+{
+  "mcpServers": {
+    "cogmem": { "command": "/opt/cogmem/cogmem", "args": ["mcp"] }
+  }
+}
+```
+
+Or prefix with `COGMEM_HOME` in a shell wrapper:
+
+```json
+{
+  "mcpServers": {
+    "cogmem": { "command": "env", "args": ["COGMEM_HOME=/opt/cogmem", "cogmem", "mcp"] }
+  }
+}
+```
+
 ## Quick Start
 
 ```bash
