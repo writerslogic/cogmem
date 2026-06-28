@@ -236,6 +236,43 @@ class TestConsolidationBudget(unittest.TestCase):
                  consolidate.PENDING) = saved
 
 
+class TestGuardHardening(unittest.TestCase):
+    def test_catastrophic_regex_does_not_hang(self):
+        import guard
+        with tempfile.TemporaryDirectory() as d:
+            failures = Path(d) / "failures"
+            failures.mkdir()
+            common.write_note(failures / "evil.md",
+                              {"id": "evil", "tripwire": "(a+)+$", "guard": "warn"},
+                              "pathological pattern")
+            saved = guard.FAILURES
+            guard.FAILURES = failures
+            try:
+                import time
+                start = time.monotonic()
+                result = guard.check("a" * 60 + "!")   # would backtrack for ages unguarded
+                self.assertLess(time.monotonic() - start, 2.0)
+                self.assertIsInstance(result, list)
+            finally:
+                guard.FAILURES = saved
+
+    def test_normal_tripwire_still_matches(self):
+        import guard
+        with tempfile.TemporaryDirectory() as d:
+            failures = Path(d) / "failures"
+            failures.mkdir()
+            common.write_note(failures / "rm.md",
+                              {"id": "rm", "tripwire": "rm -rf /", "guard": "block"},
+                              "do not wipe root")
+            saved = guard.FAILURES
+            guard.FAILURES = failures
+            try:
+                self.assertEqual(len(guard.check("rm -rf / --no-preserve-root")), 1)
+                self.assertEqual(guard.check("ls -la"), [])
+            finally:
+                guard.FAILURES = saved
+
+
 class TestFailOpen(unittest.TestCase):
     def test_recall_raises_without_socket(self):
         original = recall.SOCK_PATH
