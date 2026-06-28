@@ -3,6 +3,7 @@
 #   cogmem review [list|promote <id>|reject <id>]   approve/decline Layer-A rules
 #   cogmem status                                    health summary
 #   cogmem doctor                                    end-to-end learning-loop health
+#   cogmem trust [--rotate]                          show/re-anchor the trusted identity
 #   cogmem recall "<text>" | note "<text>"           query / record a memory
 #   cogmem guard "<command>"                          check a command against tripwires
 #   cogmem mcp                                        run the MCP server (stdio)
@@ -21,6 +22,7 @@ shift 2>/dev/null || true
 
 case "$cmd" in
   doctor)      exec "$PY" "$ENGINE/metrics.py" doctor ;;
+  trust)       exec "$PY" "$ENGINE/provenance.py" trust "$@" ;;
   review)      exec "$PY" "$ENGINE/review.py" "$@" ;;
   model)       exec "$PY" "$ENGINE/usermodel.py" "$@" ;;
   progress)    exec "$PY" "$ENGINE/narrative.py" "$@" ;;
@@ -51,6 +53,6 @@ case "$cmd" in
     [[ "$PEND" -gt 0 ]] && echo "-> $PEND rule(s) await approval: cogmem review list"
     ;;
   *)
-    echo "Usage: cogmem [status|doctor|recall|note|guard|review|capture|mcp|consolidate|index|verify]" >&2
+    echo "Usage: cogmem [status|doctor|trust|recall|note|guard|review|capture|mcp|consolidate|index|verify]" >&2
     exit 1 ;;
 esac

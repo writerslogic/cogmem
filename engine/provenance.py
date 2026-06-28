@@ -26,8 +26,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-    Ed25519PrivateKey, Ed25519PublicKey)
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
 
@@ -38,9 +37,9 @@ log = logging.getLogger("cogmem.provenance")
 RULES = VAULT / "rules"
 CREDENTIALS = VAULT / "credentials"
 IDENTITY = VAULT / "identity"
-KEY_FILE = IDENTITY / "agent.key"          # raw 32-byte Ed25519 private key (local only)
+KEY_FILE = IDENTITY / "agent.key"  # raw 32-byte Ed25519 private key (local only)
 LOG_FILE = VAULT / "provenance" / "log.jsonl"
-STATEMENTS = VAULT / "provenance" / "statements"   # COSE_Sign1 SCITT signed statements
+STATEMENTS = VAULT / "provenance" / "statements"  # COSE_Sign1 SCITT signed statements
 
 # Trust anchor: the agent DID pinned on first run. Kept OUTSIDE vault/ (one level
 # up, beside it) so an attacker who can only rewrite vault/ content — the stated
@@ -52,7 +51,7 @@ STATEMENTS = VAULT / "provenance" / "statements"   # COSE_Sign1 SCITT signed sta
 # is the next hardening step.
 TRUST_ANCHOR = COGMEM / "trust.json"
 
-ED25519_MULTICODEC = b"\xed\x01"           # multicodec prefix for an ed25519 public key
+ED25519_MULTICODEC = b"\xed\x01"  # multicodec prefix for an ed25519 public key
 _B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 
@@ -86,15 +85,18 @@ def _sha256(data: bytes) -> str:
 
 # --- identity (did:key) ---------------------------------------------------------
 
+
 def _load_or_create_key() -> Ed25519PrivateKey:
     if KEY_FILE.exists():
         key = Ed25519PrivateKey.from_private_bytes(KEY_FILE.read_bytes())
     else:
         IDENTITY.mkdir(parents=True, exist_ok=True)
         key = Ed25519PrivateKey.generate()
-        raw = key.private_bytes(serialization.Encoding.Raw,
-                                serialization.PrivateFormat.Raw,
-                                serialization.NoEncryption())
+        raw = key.private_bytes(
+            serialization.Encoding.Raw,
+            serialization.PrivateFormat.Raw,
+            serialization.NoEncryption(),
+        )
         KEY_FILE.write_bytes(raw)
         KEY_FILE.chmod(0o600)
         log.info("Generated new agent identity key.")
@@ -103,8 +105,7 @@ def _load_or_create_key() -> Ed25519PrivateKey:
 
 
 def _pub_raw(key: Ed25519PrivateKey) -> bytes:
-    return key.public_key().public_bytes(serialization.Encoding.Raw,
-                                         serialization.PublicFormat.Raw)
+    return key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
 
 def did_key(pub_raw: bytes) -> str:
@@ -123,12 +124,27 @@ def agent_did() -> str:
     return did_key(_pub_raw(_load_or_create_key()))
 
 
-def trusted_did() -> str | None:
-    """The pinned agent DID, or None if trust has not been established yet."""
+def _read_anchor() -> dict:
     try:
-        return json.loads(TRUST_ANCHOR.read_text()).get("did")
+        return json.loads(TRUST_ANCHOR.read_text())
     except (OSError, json.JSONDecodeError):
-        return None
+        return {}
+
+
+def trusted_did() -> str | None:
+    """The current pinned agent DID, or None if trust has not been established yet."""
+    return _read_anchor().get("did") or None
+
+
+def trusted_dids() -> set[str]:
+    """Every DID the operator has ever pinned: the current one plus any retired by a
+    rotation. History signed by a retired key still verifies (it was trusted when
+    written); only a never-trusted foreign key is rejected."""
+    a = _read_anchor()
+    dids = set(a.get("prior", []))
+    if a.get("did"):
+        dids.add(a["did"])
+    return dids
 
 
 def _establish_trust(did: str) -> None:
@@ -138,21 +154,61 @@ def _establish_trust(did: str) -> None:
         return
     try:
         TRUST_ANCHOR.parent.mkdir(parents=True, exist_ok=True)
-        TRUST_ANCHOR.write_text(json.dumps(
-            {"did": did, "established": datetime.now(timezone.utc).isoformat()}))
+        TRUST_ANCHOR.write_text(
+            json.dumps(
+                {"did": did, "prior": [], "established": datetime.now(timezone.utc).isoformat()}
+            )
+        )
         TRUST_ANCHOR.chmod(0o600)
     except OSError as e:  # never block signing on an anchor write failure
         log.warning("Could not write trust anchor: %s", e)
 
 
+def rotate_trust(new_did: str | None = None) -> dict:
+    """Re-anchor trust to the current agent key after an intentional key change.
+    The previous DID is retained in `prior` (so historical log/credentials it signed
+    still verify) and the old anchor is archived to trust.json.prev. Idempotent: a
+    no-op when the anchor already matches the current key. This is a deliberate
+    operator action — it is the ONLY supported way to change the trusted identity, so
+    a vault-content attacker (who cannot run it) still cannot re-root trust."""
+    new_did = new_did or did_key(_pub_raw(_load_or_create_key()))
+    a = _read_anchor()
+    old = a.get("did")
+    if old == new_did:
+        return {"changed": False, "did": new_did}
+    prior = set(a.get("prior", []))
+    if old:
+        prior.add(old)
+    anchor = {
+        "did": new_did,
+        "prior": sorted(prior),
+        "established": a.get("established", datetime.now(timezone.utc).isoformat()),
+        "rotated": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        TRUST_ANCHOR.parent.mkdir(parents=True, exist_ok=True)
+        if TRUST_ANCHOR.exists():
+            (TRUST_ANCHOR.parent / "trust.json.prev").write_text(TRUST_ANCHOR.read_text())
+        TRUST_ANCHOR.write_text(json.dumps(anchor))
+        TRUST_ANCHOR.chmod(0o600)
+    except OSError as e:
+        log.error("Could not rotate trust anchor: %s", e)
+        return {"changed": False, "did": old, "error": str(e)}
+    return {"changed": True, "from": old, "to": new_did, "prior": anchor["prior"]}
+
+
 def _issuer_trusted(issuer: str, expected: str | None) -> bool:
-    """True if `issuer` is the pinned (or explicitly expected) DID. When no anchor
-    exists yet (first run), pinning is skipped so bootstrap is not blocked."""
-    pin = expected if expected is not None else trusted_did()
-    return pin is None or issuer == pin
+    """True if `issuer` is trusted: the explicitly expected DID, else any DID the
+    operator has pinned (current or rotated-out). When no anchor exists yet (first
+    run), pinning is skipped so bootstrap is not blocked."""
+    if expected is not None:
+        return issuer == expected
+    trusted = trusted_dids()
+    return not trusted or issuer in trusted
 
 
 # --- verifiable credentials -----------------------------------------------------
+
 
 def issue_credential(memory_id: str, statement: str, meta: dict) -> dict:
     key = _load_or_create_key()
@@ -189,8 +245,9 @@ def verify_credential(vc: dict, expected_issuer: str | None = None) -> bool:
     try:
         proof = dict(vc["proof"])
         sig = b58decode(proof.pop("proofValue")[1:])
-        signing_input = _canonical({**{k: v for k, v in vc.items() if k != "proof"},
-                                    "proof": proof})
+        signing_input = _canonical(
+            {**{k: v for k, v in vc.items() if k != "proof"}, "proof": proof}
+        )
         pubkey_from_did(vc["issuer"]).verify(sig, signing_input)
     except (KeyError, ValueError, InvalidSignature, IndexError):
         return False
@@ -259,8 +316,9 @@ def verify_agent_identity_credential(vc: dict) -> bool:
     try:
         proof = dict(vc["proof"])
         sig = b58decode(proof.pop("proofValue")[1:])
-        signing_input = _canonical({**{k: v for k, v in vc.items() if k != "proof"},
-                                    "proof": proof})
+        signing_input = _canonical(
+            {**{k: v for k, v in vc.items() if k != "proof"}, "proof": proof}
+        )
         vm = proof["verificationMethod"]
         signer_did = vm.split("#", 1)[0]
         pubkey_from_did(signer_did).verify(sig, signing_input)
@@ -271,9 +329,11 @@ def verify_agent_identity_credential(vc: dict) -> bool:
 
 # --- SCITT-style transparency log ----------------------------------------------
 
+
 def _entry_signing_input(e: dict) -> bytes:
-    return _canonical({k: e[k] for k in ("seq", "ts", "event", "memoryId",
-                                         "statementHash", "prevHash", "issuer")})
+    return _canonical(
+        {k: e[k] for k in ("seq", "ts", "event", "memoryId", "statementHash", "prevHash", "issuer")}
+    )
 
 
 def _last_entry_hash() -> str:
@@ -322,12 +382,18 @@ def verify_log(expected_issuer: str | None = None) -> dict:
         except (KeyError, ValueError, InvalidSignature, IndexError):
             return {"ok": False, "entries": len(lines), "broken_at": i, "reason": "bad signature"}
         if not _issuer_trusted(entry["issuer"], expected_issuer):
-            return {"ok": False, "entries": len(lines), "broken_at": i, "reason": "untrusted issuer"}
+            return {
+                "ok": False,
+                "entries": len(lines),
+                "broken_at": i,
+                "reason": "untrusted issuer",
+            }
         prev = _sha256(line.encode("utf-8"))
     return {"ok": True, "entries": len(lines)}
 
 
 # --- SCITT inclusion receipts (RFC 6962-style Merkle) ---------------------------
+
 
 def _log_lines() -> list:
     if not LOG_FILE.exists():
@@ -341,10 +407,10 @@ def _mth(leaves: list) -> bytes:
     if n == 0:
         return hashlib.sha256(b"").digest()
     if n == 1:
-        return hashlib.sha256(b"\x00" + leaves[0]).digest()      # leaf domain prefix
+        return hashlib.sha256(b"\x00" + leaves[0]).digest()  # leaf domain prefix
     k = 1
     while k * 2 < n:
-        k *= 2                                                    # largest power of 2 < n
+        k *= 2  # largest power of 2 < n
     return hashlib.sha256(b"\x01" + _mth(leaves[:k]) + _mth(leaves[k:])).digest()
 
 
@@ -455,14 +521,16 @@ _COSE_CONTENT_TYPE = "application/cbor"
 def _cbor():
     try:
         import cbor2
-    except ModuleNotFoundError as exc:                         # graceful: COSE is optional
-        raise RuntimeError("cbor2 is required for COSE signed statements "
-                           "(pip install cbor2)") from exc
+    except ModuleNotFoundError as exc:  # graceful: COSE is optional
+        raise RuntimeError(
+            "cbor2 is required for COSE signed statements (pip install cbor2)"
+        ) from exc
     return cbor2
 
 
-def _cose_sign1(key: Ed25519PrivateKey, payload: bytes,
-                content_type: str = _COSE_CONTENT_TYPE) -> bytes:
+def _cose_sign1(
+    key: Ed25519PrivateKey, payload: bytes, content_type: str = _COSE_CONTENT_TYPE
+) -> bytes:
     cbor2 = _cbor()
     protected = cbor2.dumps({1: _COSE_ALG_EDDSA, 3: content_type, 4: _pub_raw(key)})
     sig_structure = cbor2.dumps(["Signature1", protected, b"", payload])
@@ -529,6 +597,7 @@ def _emit_statement(event: str, memory_id: str, vc: dict) -> None:
 # did:web is fetched (or supplied offline). did:web publishes the key as a JWK so
 # the CAWG ICA issuer resolver in c2pa-rs can verify the agent's credential.
 
+
 def agent_did_web(domain: str, path: str = "agents/cogmem"):
     """Return (did:web identifier, DID document) for the agent anchored at `domain`.
     Host the document at the did:web URL and any Universal Resolver can resolve it
@@ -538,11 +607,17 @@ def agent_did_web(domain: str, path: str = "agents/cogmem"):
     key = _load_or_create_key()
     seg = (":" + path.replace("/", ":")) if path else ""
     did = f"did:web:{domain}{seg}"
-    vm = {"id": f"{did}#key-1", "type": "JsonWebKey2020", "controller": did,
-          "publicKeyJwk": _agent_jwk_public(key)}
+    vm = {
+        "id": f"{did}#key-1",
+        "type": "JsonWebKey2020",
+        "controller": did,
+        "publicKeyJwk": _agent_jwk_public(key),
+    }
     doc = {
-        "@context": ["https://www.w3.org/ns/did/v1",
-                     "https://w3id.org/security/suites/jws-2020/v1"],
+        "@context": [
+            "https://www.w3.org/ns/did/v1",
+            "https://w3id.org/security/suites/jws-2020/v1",
+        ],
         "id": did,
         "verificationMethod": [vm],
         "authentication": [vm["id"]],
@@ -553,7 +628,8 @@ def agent_did_web(domain: str, path: str = "agents/cogmem"):
 
 def _fetch_did_web(did: str) -> dict:
     import urllib.request
-    parts = did[len("did:web:"):].split(":")
+
+    parts = did[len("did:web:") :].split(":")
     host = parts[0]
     sub = "/".join(parts[1:]) if len(parts) > 1 else ".well-known"
     with urllib.request.urlopen(f"https://{host}/{sub}/did.json", timeout=10) as resp:
@@ -565,9 +641,10 @@ def resolve_did_to_key(did: str, document: dict = None) -> bytes:
     self-resolving; did:web is resolved from `document` (offline) or fetched over HTTPS."""
     if did.startswith("did:key:"):
         return pubkey_from_did(did).public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        )
     if did.startswith("did:jwk:"):
-        jwk = json.loads(_b64url_decode(did[len("did:jwk:"):]))
+        jwk = json.loads(_b64url_decode(did[len("did:jwk:") :]))
         return _okp_jwk_to_raw(jwk)
     if did.startswith("did:web:"):
         doc = document or _fetch_did_web(did)
@@ -579,8 +656,6 @@ def resolve_did_to_key(did: str, document: dict = None) -> bytes:
             raise ValueError("did:web verification method is not ed25519")
         return decoded[2:]
     raise ValueError(f"unsupported DID method: {did}")
-
-
 
 
 # --- CAWG identity claims aggregation (ICA) -------------------------------------
@@ -649,28 +724,40 @@ def _ica_signer_payloads(refs: list):
             j["alg"] = alg
         cbor_refs.append(c)
         json_refs.append(j)
-    return ({"referenced_assertions": cbor_refs, "sig_type": CAWG_ICA_SIG_TYPE},
-            {"referenced_assertions": json_refs, "sig_type": CAWG_ICA_SIG_TYPE})
+    return (
+        {"referenced_assertions": cbor_refs, "sig_type": CAWG_ICA_SIG_TYPE},
+        {"referenced_assertions": json_refs, "sig_type": CAWG_ICA_SIG_TYPE},
+    )
 
 
-def agent_verified_identity(display_name: str, provider_id: str, provider_name: str,
-                            id_type: str, verified_at: str = None, uri: str = None) -> dict:
+def agent_verified_identity(
+    display_name: str,
+    provider_id: str,
+    provider_name: str,
+    id_type: str,
+    verified_at: str = None,
+    uri: str = None,
+) -> dict:
     """One entry of the VC's verifiedIdentities array. `id_type` names the verification
     performed. The agent's operator is attested with the standard `cawg.affiliation` type
     (provider + verifiedAt); the agent itself is identified by the ICA issuer DID, and
     CAWG's named-actor model already permits software actors. A portable AI-agent *identity*
     credential (what the agent is) is an identity-layer (W3C VC / DIF) concern, not a CAWG
     one -- see docs/proposals/ai-agent-identity-for-content-provenance.md."""
-    vi = {"type": id_type, "name": display_name,
-          "verifiedAt": verified_at or datetime.now(timezone.utc).isoformat(),
-          "provider": {"id": provider_id, "name": provider_name}}
+    vi = {
+        "type": id_type,
+        "name": display_name,
+        "verifiedAt": verified_at or datetime.now(timezone.utc).isoformat(),
+        "provider": {"id": provider_id, "name": provider_name},
+    }
     if uri:
         vi["uri"] = uri
     return vi
 
 
-def ica_credential(issuer_did: str, refs: list, verified_identities: list,
-                   valid_from: str = None) -> dict:
+def ica_credential(
+    issuer_did: str, refs: list, verified_identities: list, valid_from: str = None
+) -> dict:
     """The IdentityClaimsAggregationCredential (a W3C VC v2) the agent issues over the
     C2PA asset's SignerPayload."""
     _, sp_json = _ica_signer_payloads(refs)
@@ -686,8 +773,9 @@ def ica_credential(issuer_did: str, refs: list, verified_identities: list,
     }
 
 
-def ica_identity_assertion(refs: list, issuer_did: str, verified_identities: list,
-                           valid_from: str = None):
+def ica_identity_assertion(
+    refs: list, issuer_did: str, verified_identities: list, valid_from: str = None
+):
     """The CAWG identity assertion in ICA form, embedded under `cawg.identity`. Returns
     (assertion_cbor, vc): the IdentityAssertion map {signer_payload, signature, pad1}
     where `signature` is the tag-18 COSE_Sign1 over the ICA VC. `refs` MUST include the
@@ -697,8 +785,9 @@ def ica_identity_assertion(refs: list, issuer_did: str, verified_identities: lis
     sp_cbor, _ = _ica_signer_payloads(refs)
     vc = ica_credential(issuer_did, refs, verified_identities, valid_from)
     cose = _cose_sign1_vc(key, _canonical(vc))
-    assertion = cbor2.dumps({"signer_payload": sp_cbor, "signature": cose, "pad1": b""},
-                            canonical=True)
+    assertion = cbor2.dumps(
+        {"signer_payload": sp_cbor, "signature": cose, "pad1": b""}, canonical=True
+    )
     return assertion, vc
 
 
@@ -741,9 +830,8 @@ def verify_ica_assertion(assertion_bytes: bytes, did_documents: dict = None) -> 
     return vc
 
 
-
-
 # --- vault operations (CLI) -----------------------------------------------------
+
 
 def sign_vault() -> int:
     """Issue a credential for each unsigned active rule and log its creation."""
@@ -764,7 +852,7 @@ def sign_vault() -> int:
             # already signed and unchanged -> skip; legitimately edited -> re-sign
             if existing.get("credentialSubject", {}).get("statement") == body:
                 if not (STATEMENTS / f"{rid}.cose").exists():
-                    _emit_statement("created", rid, existing)   # backfill missing statement
+                    _emit_statement("created", rid, existing)  # backfill missing statement
                 continue
             event = "updated"
         vc = issue_credential(rid, body, meta)
@@ -798,31 +886,72 @@ def verify_vault() -> dict:
             valid += 1
         else:
             tampered += 1
-    return {"total": total, "signed": signed, "valid": valid, "tampered": tampered,
-            "unsigned": unsigned, "chain": verify_log()}
+    return {
+        "total": total,
+        "signed": signed,
+        "valid": valid,
+        "tampered": tampered,
+        "unsigned": unsigned,
+        "chain": verify_log(),
+    }
 
 
 if __name__ == "__main__":
     import sys
+
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     command = sys.argv[1] if len(sys.argv) > 1 else "status"
     if command == "status":
         log.info("Agent DID:           %s", agent_did())
         r = verify_log()
-        log.info("Transparency log:    %d entries, integrity %s", r.get("entries", 0),
-                 "OK" if r["ok"] else f"BROKEN ({r.get('reason')})")
+        log.info(
+            "Transparency log:    %d entries, integrity %s",
+            r.get("entries", 0),
+            "OK" if r["ok"] else f"BROKEN ({r.get('reason')})",
+        )
         n = len(list(CREDENTIALS.glob("*.jsonld"))) if CREDENTIALS.exists() else 0
         log.info("Signed credentials:  %d", n)
         sth = signed_tree_head()
         log.info("Merkle root:         %s… (tree size %d)", sth["rootHash"][:16], sth["treeSize"])
+    elif command == "trust":
+        if "--rotate" in sys.argv:
+            r = rotate_trust()
+            if r.get("error"):
+                sys.exit(1)
+            if r["changed"]:
+                log.info("Trust re-anchored: %s -> %s", r["from"], r["to"])
+                log.info(
+                    "Retired DIDs still trusted for history: %s", ", ".join(r["prior"]) or "(none)"
+                )
+            else:
+                log.info("Trust anchor already matches the current key (%s).", r["did"])
+        else:
+            td = trusted_did()
+            log.info("Trusted DID:  %s", td or "(not established)")
+            retired = sorted(trusted_dids() - ({td} if td else set()))
+            if retired:
+                log.info("Retired DIDs: %s", ", ".join(retired))
+            cur = agent_did()
+            if td and cur != td:
+                log.info("WARNING: current key DID %s does NOT match the trusted anchor.", cur)
+                log.info("If this key change was intentional, run: cogmem trust --rotate")
     elif command == "sign-vault":
         log.info("Issued %d new credential(s).", sign_vault())
     elif command == "verify":
         v = verify_vault()
-        log.info("Vault: %d rules | %d signed | %d valid | %d TAMPERED | %d unsigned",
-                 v["total"], v["signed"], v["valid"], v["tampered"], v["unsigned"])
-        log.info("Transparency log: %s (%d entries)",
-                 "OK" if v["chain"]["ok"] else "BROKEN", v["chain"].get("entries", 0))
+        log.info(
+            "Vault: %d rules | %d signed | %d valid | %d TAMPERED | %d unsigned",
+            v["total"],
+            v["signed"],
+            v["valid"],
+            v["tampered"],
+            v["unsigned"],
+        )
+        log.info(
+            "Transparency log: %s (%d entries)",
+            "OK" if v["chain"]["ok"] else "BROKEN",
+            v["chain"].get("entries", 0),
+        )
     elif command == "sth":
         sys.stdout.write(json.dumps(signed_tree_head(), indent=2) + "\n")
     elif command == "receipt":
@@ -867,8 +996,11 @@ if __name__ == "__main__":
             cose = raw
         try:
             claim = verify_signed_statement(cose)
-            log.info("Signed statement: VALID (memory %s, issuer %s)",
-                     claim.get("memoryId"), claim.get("iss"))
+            log.info(
+                "Signed statement: VALID (memory %s, issuer %s)",
+                claim.get("memoryId"),
+                claim.get("iss"),
+            )
         except (ValueError, InvalidSignature, RuntimeError):
             log.info("Signed statement: INVALID")
             sys.exit(1)
@@ -877,14 +1009,16 @@ if __name__ == "__main__":
         # Emits the CAWG identity assertion (ICA form, cawg.identity) as hex, with
         # referenced_assertions carrying the finalized JUMBF hashes the producer passes in.
         if len(sys.argv) < 4:
-            log.error("Usage: provenance.py ica-assertion <jwk|web:domain:path> "
-                      "<label>=<hashhex> [<label>=<hashhex> ...]")
+            log.error(
+                "Usage: provenance.py ica-assertion <jwk|web:domain:path> "
+                "<label>=<hashhex> [<label>=<hashhex> ...]"
+            )
             sys.exit(1)
         spec = sys.argv[2]
         if spec == "jwk":
             issuer = agent_did_jwk()
         elif spec.startswith("web:"):
-            domain, _, path = spec[len("web:"):].partition(":")
+            domain, _, path = spec[len("web:") :].partition(":")
             issuer, _doc = agent_did_web(domain, path.replace(":", "/") or "agents/cogmem")
         else:
             log.error("issuer must be 'jwk' or 'web:domain:path'")
@@ -895,15 +1029,21 @@ if __name__ == "__main__":
             if not label or not hexhash:
                 log.error("bad ref %r (want label=hashhex)", pair)
                 sys.exit(1)
-            refs.append((f"self#jumbf=c2pa.assertions/{label}", "sha256",
-                         bytes.fromhex(hexhash)))
-        vi = [agent_verified_identity(
-            "cogmem agent", "https://writersproof.com", "WritersProof",
-            id_type="cawg.affiliation")]
+            refs.append((f"self#jumbf=c2pa.assertions/{label}", "sha256", bytes.fromhex(hexhash)))
+        vi = [
+            agent_verified_identity(
+                "cogmem agent",
+                "https://writersproof.com",
+                "WritersProof",
+                id_type="cawg.affiliation",
+            )
+        ]
         assertion, _vc = ica_identity_assertion(refs, issuer, vi)
         sys.stdout.write(assertion.hex() + "\n")
     else:
-        log.error("Usage: provenance.py [status | sign-vault | verify | sth | "
-                  "receipt <id> | verify-receipt <file> | statement <id> | "
-                  "verify-statement <file> | ica-assertion <issuer> <label>=<hash>...]")
+        log.error(
+            "Usage: provenance.py [status | sign-vault | verify | sth | "
+            "receipt <id> | verify-receipt <file> | statement <id> | "
+            "verify-statement <file> | ica-assertion <issuer> <label>=<hash>...]"
+        )
         sys.exit(1)
