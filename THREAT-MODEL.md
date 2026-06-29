@@ -120,9 +120,14 @@ current MVP proves.
    (`_keychain_*`, file migrated then deleted), so a filesystem-write attacker can no longer read or
    replace it without also defeating the keychain ACL. `cogmem doctor` reports where the key lives.
    Linux/headless keep the file backend (a systemd-credential equivalent is the remaining gap). (b)
-   The STH is still signed by the agent's own key — there is **no external transparency anchor**
-   (PROVENANCE.md roadmap item #1), so an inclusion receipt proves "this memory is in *a* tree the
-   agent signed," not "in an independent, witnessed log." The ICA/C2PA claim-signer story similarly
+   The STH is self-signed by the agent, so a bare inclusion receipt proves "this memory is in *a*
+   tree the agent signed," not "in an independent log." This is addressed by an opt-in **witness
+   protocol**: a separate keypair — meant to run on another machine / under another party — co-signs
+   the same STH body (`witness_cosign`), and `verify_witnessed_sth` requires *both* the agent and the
+   registered witness DID (config `witness_did`). With a witness, the agent can no longer fork or
+   rewrite history without the witness also colluding. cogmem ships the full protocol (`cogmem
+   witness keygen | trust | cosign | verify`); the witness's *independence* is operational — the
+   operator must actually run it elsewhere. The ICA/C2PA claim-signer story similarly
    leans on dev/self-signed certs in the WritersProof producer path (brief H10): **CAWG ICA validity
    is independent of X.509 claim-signer trust**, so an ICA can read "valid" while the claim signer is
    attacker-controlled. cogmem does not close that gap; the consuming verifier must.

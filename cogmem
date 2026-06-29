@@ -23,6 +23,7 @@ shift 2>/dev/null || true
 case "$cmd" in
   doctor)      exec "$PY" "$ENGINE/metrics.py" doctor ;;
   trust)       exec "$PY" "$ENGINE/provenance.py" trust "$@" ;;
+  witness)     exec "$PY" "$ENGINE/provenance.py" witness "$@" ;;
   review)      exec "$PY" "$ENGINE/review.py" "$@" ;;
   model)       exec "$PY" "$ENGINE/usermodel.py" "$@" ;;
   progress)    exec "$PY" "$ENGINE/narrative.py" "$@" ;;

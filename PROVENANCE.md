@@ -18,7 +18,13 @@ building toward in 2026.
 
 - **Agent identity as `did:key`** (W3C DID method), backed by a real Ed25519 keypair.
   The private key is local-only (`vault/identity/agent.key`, mode 0600); the DID is
-  self-certifying. Example: `did:key:z6Mk...`.
+  self-certifying. Example: `did:key:z6Mk...`. Opt-in (config `keychain: true`) moves the
+  key into the macOS login keychain instead of the file (`cogmem doctor` shows custody).
+- **External transparency witness (opt-in).** A separate keypair on another machine can
+  co-sign the signed tree head (`cogmem witness cosign`), and once its DID is registered
+  (`cogmem witness trust <did>`) verification requires both signatures — so the agent
+  cannot fork or rewrite history alone. The witness's independence is operational (run it
+  elsewhere); cogmem ships the protocol.
 - **Memories as W3C Verifiable Credentials** (VC Data Model v2). Each rule is issued
   as an `AgentMemoryCredential` signed by the agent's DID via an `eddsa-jcs-2022`-style
   Data Integrity proof. Stored in `vault/credentials/<id>.jsonld`.
@@ -63,7 +69,7 @@ building toward in 2026.
 CLI: `cogmem provenance status`, `cogmem sign-vault`, `cogmem verify`,
 `cogmem provenance sth`, `cogmem receipt <id>`, `cogmem provenance verify-receipt <file>`,
 `cogmem statement <id>`, `cogmem provenance verify-statement <file>`,
-`cogmem trust [--rotate]`.
+`cogmem trust [--rotate]`, `cogmem witness [keygen|trust|cosign|verify]`.
 
 ## Standards mapping
 

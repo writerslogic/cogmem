@@ -555,14 +555,52 @@ def signed_tree_head() -> dict:
     return sth
 
 
+def _sth_body(sth: dict) -> dict:
+    """The canonical STH fields both the agent and a witness sign over — everything
+    except the signatures themselves."""
+    return {k: v for k, v in sth.items() if k not in ("signature", "witness")}
+
+
 def verify_sth(sth: dict, expected_issuer: str | None = None) -> bool:
     try:
-        body = {k: v for k, v in sth.items() if k != "signature"}
         sig = b58decode(sth["signature"][1:])
-        pubkey_from_did(sth["issuer"]).verify(sig, _canonical(body))
+        pubkey_from_did(sth["issuer"]).verify(sig, _canonical(_sth_body(sth)))
     except (KeyError, ValueError, InvalidSignature, IndexError):
         return False
     return _issuer_trusted(sth["issuer"], expected_issuer)
+
+
+# --- external transparency witness ----------------------------------------------
+# The agent self-signs its STH, so an inclusion receipt proves "in a tree the agent
+# signed", not "in an independently witnessed log". A witness is a SEPARATE keypair —
+# meant to live on another machine / under another party — that co-signs the same STH
+# body. A relying party then has two independent signatures: the agent can no longer
+# fork or rewrite history without the witness also colluding. cogmem provides the
+# protocol (cosign + verify + a trusted-witness registry); the witness's independence
+# is the operator's to ensure by running it elsewhere.
+
+
+def witness_cosign(sth: dict, witness_key: Ed25519PrivateKey) -> dict:
+    """Return the STH with a witness co-signature over the same body the agent signed."""
+    wdid = did_key(_pub_raw(witness_key))
+    sig = "z" + b58encode(witness_key.sign(_canonical(_sth_body(sth))))
+    return {**sth, "witness": {"issuer": wdid, "signature": sig}}
+
+
+def verify_witnessed_sth(sth: dict, witness_did: str) -> bool:
+    """True only if BOTH the agent signature (trust-pinned) and the witness
+    co-signature from `witness_did` verify over the STH body."""
+    if not verify_sth(sth):
+        return False
+    w = sth.get("witness")
+    if not isinstance(w, dict) or w.get("issuer") != witness_did:
+        return False
+    try:
+        sig = b58decode(w["signature"][1:])
+        pubkey_from_did(witness_did).verify(sig, _canonical(_sth_body(sth)))
+        return True
+    except (KeyError, ValueError, InvalidSignature, IndexError):
+        return False
 
 
 def inclusion_receipt(memory_id: str):
@@ -1028,6 +1066,50 @@ if __name__ == "__main__":
             if td and cur != td:
                 log.info("WARNING: current key DID %s does NOT match the trusted anchor.", cur)
                 log.info("If this key change was intentional, run: cogmem trust --rotate")
+    elif command == "witness":
+        sub = sys.argv[2] if len(sys.argv) > 2 else ""
+        if sub == "keygen" and len(sys.argv) > 3:
+            wkey = Ed25519PrivateKey.generate()
+            raw = wkey.private_bytes(
+                serialization.Encoding.Raw,
+                serialization.PrivateFormat.Raw,
+                serialization.NoEncryption(),
+            )
+            kp = Path(sys.argv[3])
+            kp.write_bytes(raw)
+            kp.chmod(0o600)
+            wdid = did_key(_pub_raw(wkey))
+            log.info("Witness key written to %s", kp)
+            log.info("Witness DID: %s", wdid)
+            log.info("Keep this key on a SEPARATE machine, then register it on the agent host:")
+            log.info("  cogmem witness trust %s", wdid)
+        elif sub == "trust" and len(sys.argv) > 3:
+            import config
+
+            cfg = config.load()
+            cfg["witness_did"] = sys.argv[3]
+            config.save(cfg)
+            log.info("Trusted witness DID set: %s", sys.argv[3])
+        elif sub == "cosign" and len(sys.argv) > 4:
+            sth = json.loads(Path(sys.argv[3]).read_text())
+            wkey = Ed25519PrivateKey.from_private_bytes(Path(sys.argv[4]).read_bytes())
+            sys.stdout.write(json.dumps(witness_cosign(sth, wkey), indent=2) + "\n")
+        elif sub == "verify" and len(sys.argv) > 3:
+            import config
+
+            wdid = config.load().get("witness_did")
+            if not wdid:
+                log.error("No trusted witness DID set (cogmem witness trust <did>).")
+                sys.exit(1)
+            ok = verify_witnessed_sth(json.loads(Path(sys.argv[3]).read_text()), wdid)
+            log.info("Witnessed STH: %s", "VALID" if ok else "INVALID")
+            sys.exit(0 if ok else 1)
+        else:
+            log.error(
+                "Usage: provenance.py witness [keygen <keyfile> | trust <did> | "
+                "cosign <sth.json> <keyfile> | verify <sth.json>]"
+            )
+            sys.exit(1)
     elif command == "sign-vault":
         log.info("Issued %d new credential(s).", sign_vault())
     elif command == "verify":

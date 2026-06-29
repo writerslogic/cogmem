@@ -32,6 +32,7 @@ DEFAULTS = {
     "recall_gap": 6.0,
     "provenance_enforce": False,
     "keychain": False,
+    "witness_did": None,
     "models": _MODELS,
     "embed_model": _EMBED_MODEL,
     "rerank_model": _RERANK_MODEL,
