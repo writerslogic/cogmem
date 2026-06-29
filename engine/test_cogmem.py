@@ -313,6 +313,47 @@ class TestGuardHardening(unittest.TestCase):
                 guard.FAILURES = saved
 
 
+class TestOutcomeEval(unittest.TestCase):
+    def test_realized_efficacy_math(self):
+        import eval as cogmem_eval
+
+        saved = cogmem_eval.RULES
+        with tempfile.TemporaryDirectory() as d:
+            rules = Path(d)
+            cogmem_eval.RULES = rules
+            try:
+                common.write_note(
+                    rules / "a.md", {"id": "a", "recalled": 4, "helpful": 3, "contradicted": 1}, "x"
+                )
+                common.write_note(
+                    rules / "b.md", {"id": "b", "recalled": 0, "helpful": 0, "contradicted": 0}, "y"
+                )
+                o = cogmem_eval.outcomes()
+                self.assertEqual(o["rules"], 2)
+                self.assertEqual(o["rules_ever_recalled"], 1)  # only 'a' fired
+                self.assertEqual(o["coverage"], 0.5)
+                self.assertEqual(o["recall_events"], 4)
+                self.assertEqual(o["helpful_rate"], 0.75)  # 3/4
+                self.assertEqual(o["contradicted_rate"], 0.25)  # 1/4
+                self.assertEqual(o["net_per_recall"], 0.5)  # (3-1)/4
+            finally:
+                cogmem_eval.RULES = saved
+
+    def test_no_recalls_yields_none_rates(self):
+        import eval as cogmem_eval
+
+        saved = cogmem_eval.RULES
+        with tempfile.TemporaryDirectory() as d:
+            cogmem_eval.RULES = Path(d)
+            try:
+                common.write_note(Path(d) / "a.md", {"id": "a"}, "x")
+                o = cogmem_eval.outcomes()
+                self.assertIsNone(o["helpful_rate"])
+                self.assertEqual(o["coverage"], 0.0)
+            finally:
+                cogmem_eval.RULES = saved
+
+
 class TestFailOpen(unittest.TestCase):
     def test_recall_raises_without_socket(self):
         original = recall.SOCK_PATH

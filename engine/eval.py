@@ -22,6 +22,7 @@ Usage:
   python eval.py --floor F --gap G   # evaluate at explicit thresholds
   python eval.py --sweep         # grid-search floor/gap, recommend best
   python eval.py --regen         # regenerate the eval set from current rules
+  python eval.py --outcomes      # realized efficacy from real-session feedback (non-circular)
 """
 
 import json
@@ -52,7 +53,7 @@ NEGATIVES = [
 
 def generate_eval_set() -> dict:
     rules = {}
-    for f in sorted(RULES.glob("*.md"))[:18]:   # cap to keep generation within token budget
+    for f in sorted(RULES.glob("*.md"))[:18]:  # cap to keep generation within token budget
         meta, body = read_note(f)
         rules[meta.get("id", f.stem)] = body
     if not rules:
@@ -120,13 +121,59 @@ def sweep(eval_set: dict) -> None:
             m = evaluate(eval_set, floor, gap)
             # reward recall, penalize false positives
             score = m["recall_at_k"] - 0.5 * m["false_pos_rate"]
-            log.info("%.2f   %.1f   %.3f     %.3f  %.3f     %.3f",
-                     floor, gap, m["recall_at_k"], m["mrr"], m["false_pos_rate"], score)
+            log.info(
+                "%.2f   %.1f   %.3f     %.3f  %.3f     %.3f",
+                floor,
+                gap,
+                m["recall_at_k"],
+                m["mrr"],
+                m["false_pos_rate"],
+                score,
+            )
             if best is None or score > best[0]:
                 best = (score, floor, gap, m)
     log.info("")
-    log.info("BEST: floor=%.2f gap=%.1f  (recall@5=%.3f, fp=%.3f)",
-             best[1], best[2], best[3]["recall_at_k"], best[3]["false_pos_rate"])
+    log.info(
+        "BEST: floor=%.2f gap=%.1f  (recall@5=%.3f, fp=%.3f)",
+        best[1],
+        best[2],
+        best[3]["recall_at_k"],
+        best[3]["false_pos_rate"],
+    )
+
+
+def outcomes() -> dict:
+    """Realized, non-circular efficacy from real sessions: over rules that were
+    actually recalled, what fraction the feedback step judged helpful vs contradicted,
+    plus coverage (how many rules ever fire). Unlike recall@k this is grounded in what
+    happened, not in queries generated from the rules themselves. Caveat: the helpful/
+    contradicted labels are the feedback judge's verdicts (an LLM), so this is a
+    realized-usage signal, not ground truth."""
+    total = helpful = contradicted = recalled = fired = 0
+    for f in RULES.glob("*.md"):
+        meta, _ = read_note(f)
+        total += 1
+        h, c, r = (
+            int(meta.get("helpful", 0)),
+            int(meta.get("contradicted", 0)),
+            int(meta.get("recalled", 0)),
+        )
+        helpful += h
+        contradicted += c
+        recalled += r
+        if r > 0:
+            fired += 1
+    return {
+        "rules": total,
+        "rules_ever_recalled": fired,
+        "coverage": round(fired / total, 3) if total else 0.0,
+        "recall_events": recalled,
+        "helpful": helpful,
+        "contradicted": contradicted,
+        "helpful_rate": round(helpful / recalled, 3) if recalled else None,
+        "contradicted_rate": round(contradicted / recalled, 3) if recalled else None,
+        "net_per_recall": round((helpful - contradicted) / recalled, 3) if recalled else None,
+    }
 
 
 def _arg(flag: str, default):
@@ -134,6 +181,28 @@ def _arg(flag: str, default):
 
 
 if __name__ == "__main__":
+    if "--outcomes" in sys.argv:
+        o = outcomes()
+        log.info("Realized recall efficacy (from feedback on real sessions):")
+        log.info(
+            "  coverage:        %d/%d rules ever recalled (%.0f%%)",
+            o["rules_ever_recalled"],
+            o["rules"],
+            100 * o["coverage"],
+        )
+        if o["recall_events"]:
+            log.info("  recall events:   %d", o["recall_events"])
+            log.info("  helpful rate:    %.3f  (%d helpful)", o["helpful_rate"], o["helpful"])
+            log.info(
+                "  contradicted:    %.3f  (%d contradicted)",
+                o["contradicted_rate"],
+                o["contradicted"],
+            )
+            log.info("  net per recall:  %+.3f", o["net_per_recall"])
+        else:
+            log.info("  no scored recalls yet — run sessions so feedback can accumulate")
+        log.info("  (helpful/contradicted are the feedback judge's verdicts, not ground truth)")
+        sys.exit(0)
     regen = "--regen" in sys.argv
     data = load_eval_set(regen)
     if not data:

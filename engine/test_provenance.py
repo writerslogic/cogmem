@@ -498,6 +498,102 @@ class IssuerPinningTest(unittest.TestCase):
         self.assertFalse(pv.verify_credential(forged))
 
 
+class WitnessTest(unittest.TestCase):
+    """An external witness (separate key) co-signs the STH; verification requires
+    both the agent signature and the witness co-signature."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        pv.IDENTITY = root / "identity"
+        pv.KEY_FILE = pv.IDENTITY / "agent.key"
+        pv.LOG_FILE = root / "provenance" / "log.jsonl"
+        pv.TRUST_ANCHOR = root / "trust.json"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _sth(self):
+        vc = pv.issue_credential("r", "x", {"kind": "rule"})
+        pv.log_append("created", "r", vc)
+        return pv.signed_tree_head()
+
+    def test_cosign_and_verify(self):
+        wkey = pv.Ed25519PrivateKey.generate()
+        wdid = pv.did_key(pv._pub_raw(wkey))
+        witnessed = pv.witness_cosign(self._sth(), wkey)
+        self.assertTrue(pv.verify_witnessed_sth(witnessed, wdid))
+        # agent signature still verifies despite the added witness field
+        self.assertTrue(pv.verify_sth(witnessed))
+
+    def test_missing_witness_rejected(self):
+        wdid = pv.did_key(pv._pub_raw(pv.Ed25519PrivateKey.generate()))
+        self.assertFalse(pv.verify_witnessed_sth(self._sth(), wdid))
+
+    def test_wrong_witness_did_rejected(self):
+        wkey = pv.Ed25519PrivateKey.generate()
+        witnessed = pv.witness_cosign(self._sth(), wkey)
+        other = pv.did_key(pv._pub_raw(pv.Ed25519PrivateKey.generate()))
+        self.assertFalse(pv.verify_witnessed_sth(witnessed, other))
+
+    def test_tampered_root_breaks_both(self):
+        wkey = pv.Ed25519PrivateKey.generate()
+        wdid = pv.did_key(pv._pub_raw(wkey))
+        witnessed = pv.witness_cosign(self._sth(), wkey)
+        witnessed["rootHash"] = "00" * 32  # forge the committed root
+        self.assertFalse(pv.verify_witnessed_sth(witnessed, wdid))
+
+    def test_forged_witness_signature_rejected(self):
+        wkey = pv.Ed25519PrivateKey.generate()
+        wdid = pv.did_key(pv._pub_raw(wkey))
+        witnessed = pv.witness_cosign(self._sth(), wkey)
+        witnessed["witness"]["signature"] = "z" + pv.b58encode(b"not a real signature")
+        self.assertFalse(pv.verify_witnessed_sth(witnessed, wdid))
+
+
+class KeychainCustodyTest(unittest.TestCase):
+    """Opt-in keychain backend: the key lives in the keychain, never the plaintext
+    file. Uses an in-memory stand-in so no real keychain is touched."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        pv.IDENTITY = root / "identity"
+        pv.KEY_FILE = pv.IDENTITY / "agent.key"
+        pv.TRUST_ANCHOR = root / "trust.json"
+        self._kc = {}
+        self._saved = (pv._keychain_available, pv._keychain_get, pv._keychain_put)
+        pv._keychain_available = lambda: True
+        pv._keychain_get = lambda: self._kc.get("key")
+        pv._keychain_put = lambda raw: bool(self._kc.__setitem__("key", raw)) or True
+
+    def tearDown(self):
+        pv._keychain_available, pv._keychain_get, pv._keychain_put = self._saved
+        self._tmp.cleanup()
+
+    def test_generate_stores_in_keychain_not_file(self):
+        did = pv.agent_did()
+        self.assertIn("key", self._kc)
+        self.assertFalse(pv.KEY_FILE.exists())
+        stored = pv.did_key(pv._pub_raw(pv.Ed25519PrivateKey.from_private_bytes(self._kc["key"])))
+        self.assertEqual(did, stored)
+
+    def test_migrates_file_key_into_keychain(self):
+        pv.IDENTITY.mkdir(parents=True, exist_ok=True)
+        seed, raw = pv._new_key_raw()
+        pv.KEY_FILE.write_bytes(raw)
+        did_before = pv.did_key(pv._pub_raw(seed))
+        self.assertEqual(pv.agent_did(), did_before)  # identity preserved
+        self.assertFalse(pv.KEY_FILE.exists())  # plaintext file removed
+        self.assertEqual(self._kc["key"], raw)  # now in keychain
+
+    def test_loads_existing_keychain_key(self):
+        seed, raw = pv._new_key_raw()
+        self._kc["key"] = raw
+        self.assertEqual(pv.agent_did(), pv.did_key(pv._pub_raw(seed)))
+        self.assertFalse(pv.KEY_FILE.exists())
+
+
 class CoseHardeningTest(unittest.TestCase):
     """T7: _cose_verify must reject any algorithm other than EdDSA (alg confusion)."""
 
