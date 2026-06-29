@@ -38,6 +38,7 @@ case "$cmd" in
   guard)       exec "$PY" "$ENGINE/guard.py" "$@" ;;
   ingest)      exec "$PY" "$ENGINE/artifacts.py" "$@" ;;
   tune)        exec "$PY" "$ENGINE/tune.py" "$@" ;;
+  eval)        exec "$PY" "$ENGINE/eval.py" "$@" ;;
   provenance)  exec "$PY" "$ENGINE/provenance.py" "$@" ;;
   verify)      exec "$PY" "$ENGINE/provenance.py" verify ;;
   receipt)     exec "$PY" "$ENGINE/provenance.py" receipt "$@" ;;
