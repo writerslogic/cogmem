@@ -115,7 +115,11 @@ current MVP proves.
    A vault-content attacker cannot invoke it. **Residual, unchanged:** (a) the anchor lives under
    `$COGMEM_HOME`, so an
    attacker with write access to the *whole* home (including `trust.json` and `agent.key`) re-anchors
-   and wins — collapses to T6; OS-keychain custody of the key + anchor is the roadmap hardening. (b)
+   and wins — collapses to T6. This is mitigated by opt-in **macOS Keychain custody** (config
+   `keychain: true`): the private key moves out of the 0600 file into the login keychain
+   (`_keychain_*`, file migrated then deleted), so a filesystem-write attacker can no longer read or
+   replace it without also defeating the keychain ACL. `cogmem doctor` reports where the key lives.
+   Linux/headless keep the file backend (a systemd-credential equivalent is the remaining gap). (b)
    The STH is still signed by the agent's own key — there is **no external transparency anchor**
    (PROVENANCE.md roadmap item #1), so an inclusion receipt proves "this memory is in *a* tree the
    agent signed," not "in an independent, witnessed log." The ICA/C2PA claim-signer story similarly

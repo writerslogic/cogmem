@@ -23,6 +23,9 @@ import base64
 import hashlib
 import json
 import logging
+import shutil
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -86,17 +89,98 @@ def _sha256(data: bytes) -> str:
 # --- identity (did:key) ---------------------------------------------------------
 
 
+# --- key custody backends -------------------------------------------------------
+# By default the raw key lives in a 0600 file (KEY_FILE). Opt in (config "keychain")
+# to store it in the macOS login Keychain instead — the next hardening tier over a
+# plain file (THREAT-MODEL §4.3). Dependency-free: shells out to the `security` CLI.
+# A `security` keychain item is keyed by (account=$COGMEM_HOME, service).
+
+_KEYCHAIN_SERVICE = "cogmem-agent-key"
+
+
+def _keychain_available() -> bool:
+    return sys.platform == "darwin" and shutil.which("security") is not None and _keychain_enabled()
+
+
+def _keychain_enabled() -> bool:
+    try:
+        import config
+
+        return bool(config.load().get("keychain", False))
+    except Exception:  # noqa: BLE001 — config is optional; default off
+        return False
+
+
+def _keychain_get() -> bytes | None:
+    try:
+        out = subprocess.run(
+            ["security", "find-generic-password", "-a", str(COGMEM), "-s", _KEYCHAIN_SERVICE, "-w"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if out.returncode != 0 or not out.stdout.strip():
+            return None
+        return base64.b64decode(out.stdout.strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def _keychain_put(raw: bytes) -> bool:
+    try:
+        out = subprocess.run(
+            [
+                "security",
+                "add-generic-password",
+                "-U",
+                "-a",
+                str(COGMEM),
+                "-s",
+                _KEYCHAIN_SERVICE,
+                "-w",
+                base64.b64encode(raw).decode("ascii"),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return out.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _new_key_raw() -> tuple[Ed25519PrivateKey, bytes]:
+    key = Ed25519PrivateKey.generate()
+    raw = key.private_bytes(
+        serialization.Encoding.Raw,
+        serialization.PrivateFormat.Raw,
+        serialization.NoEncryption(),
+    )
+    return key, raw
+
+
 def _load_or_create_key() -> Ed25519PrivateKey:
-    if KEY_FILE.exists():
+    if _keychain_available():
+        raw = _keychain_get()
+        if raw is not None:
+            key = Ed25519PrivateKey.from_private_bytes(raw)
+        elif KEY_FILE.exists():
+            # Migrate an existing file-based key into the keychain, then remove the
+            # plaintext file so the secret no longer sits next to the data.
+            raw = KEY_FILE.read_bytes()
+            key = Ed25519PrivateKey.from_private_bytes(raw)
+            if _keychain_put(raw):
+                KEY_FILE.unlink()
+                log.info("Migrated agent identity key into the OS keychain.")
+        else:
+            key, raw = _new_key_raw()
+            _keychain_put(raw)
+            log.info("Generated new agent identity key (keychain).")
+    elif KEY_FILE.exists():
         key = Ed25519PrivateKey.from_private_bytes(KEY_FILE.read_bytes())
     else:
         IDENTITY.mkdir(parents=True, exist_ok=True)
-        key = Ed25519PrivateKey.generate()
-        raw = key.private_bytes(
-            serialization.Encoding.Raw,
-            serialization.PrivateFormat.Raw,
-            serialization.NoEncryption(),
-        )
+        key, raw = _new_key_raw()
         KEY_FILE.write_bytes(raw)
         KEY_FILE.chmod(0o600)
         log.info("Generated new agent identity key.")
@@ -122,6 +206,15 @@ def pubkey_from_did(did: str) -> Ed25519PublicKey:
 
 def agent_did() -> str:
     return did_key(_pub_raw(_load_or_create_key()))
+
+
+def key_custody() -> str:
+    """Where the agent's private key currently lives, for the doctor surface."""
+    if _keychain_available() and _keychain_get() is not None:
+        return "macOS keychain"
+    if KEY_FILE.exists():
+        return "file (0600)"
+    return "not yet created"
 
 
 def _read_anchor() -> dict:

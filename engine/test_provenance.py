@@ -498,6 +498,49 @@ class IssuerPinningTest(unittest.TestCase):
         self.assertFalse(pv.verify_credential(forged))
 
 
+class KeychainCustodyTest(unittest.TestCase):
+    """Opt-in keychain backend: the key lives in the keychain, never the plaintext
+    file. Uses an in-memory stand-in so no real keychain is touched."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        pv.IDENTITY = root / "identity"
+        pv.KEY_FILE = pv.IDENTITY / "agent.key"
+        pv.TRUST_ANCHOR = root / "trust.json"
+        self._kc = {}
+        self._saved = (pv._keychain_available, pv._keychain_get, pv._keychain_put)
+        pv._keychain_available = lambda: True
+        pv._keychain_get = lambda: self._kc.get("key")
+        pv._keychain_put = lambda raw: bool(self._kc.__setitem__("key", raw)) or True
+
+    def tearDown(self):
+        pv._keychain_available, pv._keychain_get, pv._keychain_put = self._saved
+        self._tmp.cleanup()
+
+    def test_generate_stores_in_keychain_not_file(self):
+        did = pv.agent_did()
+        self.assertIn("key", self._kc)
+        self.assertFalse(pv.KEY_FILE.exists())
+        stored = pv.did_key(pv._pub_raw(pv.Ed25519PrivateKey.from_private_bytes(self._kc["key"])))
+        self.assertEqual(did, stored)
+
+    def test_migrates_file_key_into_keychain(self):
+        pv.IDENTITY.mkdir(parents=True, exist_ok=True)
+        seed, raw = pv._new_key_raw()
+        pv.KEY_FILE.write_bytes(raw)
+        did_before = pv.did_key(pv._pub_raw(seed))
+        self.assertEqual(pv.agent_did(), did_before)  # identity preserved
+        self.assertFalse(pv.KEY_FILE.exists())  # plaintext file removed
+        self.assertEqual(self._kc["key"], raw)  # now in keychain
+
+    def test_loads_existing_keychain_key(self):
+        seed, raw = pv._new_key_raw()
+        self._kc["key"] = raw
+        self.assertEqual(pv.agent_did(), pv.did_key(pv._pub_raw(seed)))
+        self.assertFalse(pv.KEY_FILE.exists())
+
+
 class CoseHardeningTest(unittest.TestCase):
     """T7: _cose_verify must reject any algorithm other than EdDSA (alg confusion)."""
 

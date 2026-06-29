@@ -13,10 +13,10 @@ CONFIG = Path(__file__).resolve().parent / "config.json"
 # LLM ids per pipeline role and the local recall models, in one place so upgrades
 # don't need code edits and a config.json can override any of them.
 _MODELS = {
-    "detect": "claude-haiku-4-5-20251001",      # cheap signal check, every session
-    "extract": "claude-sonnet-4-6",             # rule extraction, only on signal
-    "judge": "claude-haiku-4-5-20251001",       # feedback verdicts
-    "consolidate": "claude-sonnet-4-6",         # dedup classification
+    "detect": "claude-haiku-4-5-20251001",  # cheap signal check, every session
+    "extract": "claude-sonnet-4-6",  # rule extraction, only on signal
+    "judge": "claude-haiku-4-5-20251001",  # feedback verdicts
+    "consolidate": "claude-sonnet-4-6",  # dedup classification
     "selfmodel": "claude-sonnet-4-6",
     "projectstate": "claude-sonnet-4-6",
     "usermodel": "claude-sonnet-4-6",
@@ -27,8 +27,15 @@ _MODELS = {
 _EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 _RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 
-DEFAULTS = {"recall_floor": 0.62, "recall_gap": 6.0, "provenance_enforce": False,
-            "models": _MODELS, "embed_model": _EMBED_MODEL, "rerank_model": _RERANK_MODEL}
+DEFAULTS = {
+    "recall_floor": 0.62,
+    "recall_gap": 6.0,
+    "provenance_enforce": False,
+    "keychain": False,
+    "models": _MODELS,
+    "embed_model": _EMBED_MODEL,
+    "rerank_model": _RERANK_MODEL,
+}
 
 
 def load() -> dict:

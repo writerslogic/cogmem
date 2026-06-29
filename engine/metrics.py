@@ -211,6 +211,7 @@ def doctor() -> None:
             "Trust anchor:         %s",
             (td[:28] + "…") if td else "NOT established — run `cogmem status` once",
         )
+        log.info("Key custody:          %s", pv.key_custody())
         if td and pv.agent_did() != td:
             log.info(
                 "  WARNING: current key DID does not match the anchor — "
