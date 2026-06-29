@@ -3,6 +3,20 @@
 All notable changes to this project are generated from the commit history.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [Conventional Commits](https://www.conventionalcommits.org/).
+## [2.6.0] - 2026-06-29
+
+### Added
+- Close the three deep provenance/eval residuals (keychain, outcome-eval, witness) (#15)
+- Cogmem trust --rotate for intentional key rotation (#12)
+
+### Documentation
+- Document doctor/trust commands + commit the missing PROVENANCE.md (#13)
+- Document COGMEM_HOME and non-default install locations (#10)
+- Use markdown for glama card badge so it renders on glama
+- Update changelog [skip ci]
+
+### Harden
+- Work through both code-review batches (provenance pinning, consolidation, guard, CI, docs) (#11)
 ## [2.5.0] - 2026-06-26
 
 ### Added
