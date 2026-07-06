@@ -19,8 +19,6 @@ cogmem learns how you work across sessions so your agent gets more accurate and 
 
 > Developed by [WritersLogic](https://github.com/writerslogic) — local-first recall; your memory and identity key stay on your machine (see [Privacy](#privacy)).
 
-[![cogmem MCP server](https://glama.ai/mcp/servers/writerslogic/cogmem/badges/card.svg)](https://glama.ai/mcp/servers/writerslogic/cogmem)
-
 ## Installation
 
 ### From PyPI
