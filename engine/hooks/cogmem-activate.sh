@@ -4,6 +4,10 @@
 # daemon so the first prompt's Layer-B lookup is fast. Strictly fail-open.
 set -uo pipefail
 
+# Resolve cogmem's home from COGMEM_HOME, else from this hook's own location
+# ($COGMEM_HOME/hooks/), so a non-default install operates on its own vault.
+COGMEM_HOME="${COGMEM_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
 INPUT=$(cat)
 SOURCE=$(echo "$INPUT" | jq -r '.source // empty')
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
@@ -11,13 +15,16 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 # Startup only, to avoid repeating on every resume.
 [[ "$SOURCE" != "startup" ]] && exit 0
 
-ENGINE="$HOME/.claude/cogmem/engine"
-LEARNED="$HOME/.claude/cogmem/vault/learned"
+LEARNED="$COGMEM_HOME/vault/learned"
+
+# Resolve a Python that can import cogmem (see cogmem-recall.sh for the rationale).
+PY="$(cat "$COGMEM_HOME/.cogmem-python" 2>/dev/null)"
+[[ -x "$PY" ]] || PY="$COGMEM_HOME/engine/.venv/bin/python3"
+[[ -x "$PY" ]] || PY="python3"
 
 # Warm the recall daemon in the background if it is not already up.
-VENV_PY="$ENGINE/.venv/bin/python3"
-if [[ -x "$VENV_PY" && ! -S "$ENGINE/recall.sock" ]]; then
-    nohup "$VENV_PY" "$ENGINE/daemon.py" >/dev/null 2>&1 &
+if command -v "$PY" >/dev/null 2>&1 && [[ ! -S "$COGMEM_HOME/recall.sock" ]]; then
+    nohup "$PY" -m cogmem.daemon >/dev/null 2>&1 &
 fi
 
 # Detect scope (language) from the project.
@@ -29,10 +36,10 @@ for d in "$CWD" "$CWD"/*/; do
 done
 
 # The user model (a synthesis of episodes + rules) is the always-loaded "who is
-# David" framing; universal.md carries specific cross-cutting guardrails. Both load:
+# the user" framing; universal.md carries specific cross-cutting guardrails. Both load:
 # the model gives principles, the rules give precise do/don'ts.
 USERMODEL=""
-USERMODEL_FILE="$HOME/.claude/cogmem/vault/user-model.md"
+USERMODEL_FILE="$COGMEM_HOME/vault/user-model.md"
 [[ -f "$USERMODEL_FILE" ]] && USERMODEL=$(grep -v '^<!--' "$USERMODEL_FILE")
 
 FILES=("$LEARNED/universal.md")
@@ -51,10 +58,10 @@ for f in "${FILES[@]}"; do
 done
 
 # Pending Layer-A approvals: push them to the user at session start instead of
-# making him remember to run a command. Rate-limited to once / 24h so it is not
-# naggy: if he ignores them they resurface tomorrow until acted on.
-PENDING_DIR="$HOME/.claude/cogmem/vault/pending"
-STAMP="$HOME/.claude/cogmem/vault/.approval-surfaced"
+# making them remember to run a command. Rate-limited to once / 24h so it is not
+# naggy: if they ignore them they resurface tomorrow until acted on.
+PENDING_DIR="$COGMEM_HOME/vault/pending"
+STAMP="$COGMEM_HOME/vault/.approval-surfaced"
 PENDING_MSG=""
 if compgen -G "$PENDING_DIR/*.md" >/dev/null 2>&1; then
     SURFACE=true
@@ -64,7 +71,11 @@ if compgen -G "$PENDING_DIR/*.md" >/dev/null 2>&1; then
     fi
     if $SURFACE; then
         N=$(ls "$PENDING_DIR"/*.md | wc -l | tr -d ' ')
-        PENDING_MSG="\n\nCOGMEM: ${N} learned rule(s) await David's approval to become always-loaded. Early in this session, briefly tell him and offer to promote or reject each. Apply his choice with: ~/.claude/cogmem/cogmem review promote|reject <id>. Pending:"
+        # Personalize with the configured user_name (config.json), mirroring the
+        # engine default of "the user" when it is unset, empty, or jq is unavailable.
+        NAME=$(jq -r '.user_name // empty' "$COGMEM_HOME/engine/config.json" 2>/dev/null)
+        [[ -z "$NAME" ]] && NAME="the user"
+        PENDING_MSG="\n\nCOGMEM: ${N} learned rule(s) await ${NAME}'s approval to become always-loaded. Early in this session, briefly tell them and offer to promote or reject each. Apply their choice with: cogmem review promote|reject <id>. Pending:"
         for f in "$PENDING_DIR"/*.md; do
             id=$(grep -m1 '^id:' "$f" | sed 's/^id:[[:space:]]*//')
             rule=$(awk '/^---$/{c++; next} c>=2 && NF' "$f" | tr '\n' ' ' | cut -c1-180)
@@ -78,10 +89,10 @@ fi
 SELFCHECK=""
 PROJSTATE=""
 STALL=""
-if [[ -x "$VENV_PY" ]]; then
-    SELFCHECK=$("$VENV_PY" "$ENGINE/selfmodel.py" --activate universal "$SCOPE" "$PROJECT" 2>/dev/null)
-    [[ -n "$PROJECT" ]] && PROJSTATE=$("$VENV_PY" "$ENGINE/projectstate.py" --activate "$PROJECT" 2>/dev/null)
-    [[ -n "$PROJECT" ]] && STALL=$("$VENV_PY" "$ENGINE/narrative.py" --alert "$PROJECT" 2>/dev/null)
+if command -v "$PY" >/dev/null 2>&1; then
+    SELFCHECK=$("$PY" -m cogmem.selfmodel --activate universal "$SCOPE" "$PROJECT" 2>/dev/null)
+    [[ -n "$PROJECT" ]] && PROJSTATE=$("$PY" -m cogmem.projectstate --activate "$PROJECT" 2>/dev/null)
+    [[ -n "$PROJECT" ]] && STALL=$("$PY" -m cogmem.narrative --alert "$PROJECT" 2>/dev/null)
 fi
 
 CONTEXT=""

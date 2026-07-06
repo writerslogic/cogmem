@@ -33,6 +33,7 @@ DEFAULTS = {
     "provenance_enforce": False,
     "keychain": False,
     "witness_did": None,
+    "user_name": "the user",
     "models": _MODELS,
     "embed_model": _EMBED_MODEL,
     "rerank_model": _RERANK_MODEL,

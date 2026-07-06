@@ -30,10 +30,9 @@ import logging
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import VAULT, api_call, parse_json_block, read_note
-import config
-import recall
+from cogmem.common import VAULT, api_call, parse_json_block, read_note
+from cogmem import config
+from cogmem import recall
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("cogmem.eval")

@@ -14,11 +14,9 @@ Usage:
 
 import logging
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import indexstore
-import config
+from cogmem import indexstore
+from cogmem import config
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.index")

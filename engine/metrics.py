@@ -15,8 +15,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import VAULT, read_note
+from cogmem.common import SOCK_PATH, VAULT, read_note
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("cogmem.metrics")
@@ -159,7 +158,7 @@ def report() -> None:
         ", ".join(p.stem for p in projects) or "none",
     )
     log.info("In-loop notes recorded:   %d", n_notes)
-    import config
+    from cogmem import config
 
     cfg = config.load()
     log.info(
@@ -174,7 +173,7 @@ def report() -> None:
 
 
 def _daemon_status() -> str:
-    sock = Path(__file__).resolve().parent / "recall.sock"
+    sock = SOCK_PATH
     if not sock.exists():
         return "cold (lazy-spawns on next prompt)"
     try:
@@ -204,7 +203,7 @@ def doctor() -> None:
         "present" if has_key else "MISSING — capture/feedback/consolidation will no-op",
     )
     try:
-        import provenance as pv
+        from cogmem import provenance as pv
 
         td = pv.trusted_did()
         log.info(
@@ -232,7 +231,7 @@ def doctor() -> None:
         fb["helpful"],
         fb["contradicted"],
     )
-    import config
+    from cogmem import config
 
     log.info("Provenance enforce:   %s", "on" if config.load().get("provenance_enforce") else "off")
 

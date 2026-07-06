@@ -14,11 +14,11 @@ Usage:
 import json
 import socket
 import sys
-from pathlib import Path
 
-SOCK_PATH = Path(__file__).resolve().parent / "recall.sock"
+from cogmem.common import SOCK_PATH
+
 TIMEOUT = 1.0
-MAX_MSG = 1 << 20   # 1 MiB ceiling on the daemon response
+MAX_MSG = 1 << 20  # 1 MiB ceiling on the daemon response
 
 
 def filter_results(results: list[dict], min_score: float, gap: float) -> list[dict]:
@@ -55,9 +55,12 @@ if __name__ == "__main__":
     query = args[0]
     scope = args[args.index("--scope") + 1] if "--scope" in args else None
     k = int(args[args.index("--k") + 1]) if "--k" in args else 3
-    import config
+    from cogmem import config
+
     cfg = config.load()
-    min_score = float(args[args.index("--min-score") + 1]) if "--min-score" in args else cfg["recall_floor"]
+    min_score = (
+        float(args[args.index("--min-score") + 1]) if "--min-score" in args else cfg["recall_floor"]
+    )
     gap = float(args[args.index("--gap") + 1]) if "--gap" in args else cfg["recall_gap"]
     try:
         results = recall(query, k, scope)

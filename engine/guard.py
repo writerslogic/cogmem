@@ -14,10 +14,8 @@ import json
 import re
 import signal
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import VAULT, read_note
+from cogmem.common import VAULT, read_note
 
 FAILURES = VAULT / "failures"
 

@@ -19,14 +19,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import common  # noqa: E402
-import provenance as pv  # noqa: E402
+from cogmem import __version__, common  # noqa: E402
+from cogmem import provenance as pv  # noqa: E402
 
 ENGINE = Path(__file__).resolve().parent
 VAULT = common.VAULT
 PY = sys.executable
-SERVER = {"name": "cogmem", "version": "2.6"}
+SERVER = {"name": "cogmem", "version": __version__}
 DEFAULT_PROTOCOL = "2024-11-05"
 
 

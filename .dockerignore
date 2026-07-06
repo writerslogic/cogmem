@@ -1,0 +1,20 @@
+# Keep the build context small and the image reproducible: never ship local
+# runtime state, the host virtualenv, or VCS/CI metadata.
+.git/
+.github/
+engine/.venv/
+**/__pycache__/
+**/*.pyc
+engine/*.db
+engine/*.sock
+engine/eval_set.json
+vault/
+episodes/
+hypotheses/
+activations/
+stream/
+*.log
+assets/
+docs/
+examples/
+tests/

@@ -21,10 +21,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import VAULT, api_call
-import config
-from acquire import extract_conversation
+from cogmem.common import VAULT, api_call
+from cogmem import config
+from cogmem.acquire import extract_conversation
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.projectstate")

@@ -12,13 +12,12 @@ re-embedded, so a per-session reindex embeds one new rule, not the whole vault.
 import hashlib
 import json
 import sqlite3
-from pathlib import Path
 
 import numpy as np
 
-ENGINE = Path(__file__).resolve().parent
-INDEX_DB = ENGINE / "index.db"
-RULES = ENGINE.parent / "vault" / "rules"
+from cogmem.common import INDEX_DB, VAULT
+
+RULES = VAULT / "rules"
 EMBED_DIM = 384
 
 
@@ -39,17 +38,16 @@ def current_rules() -> list[tuple[str, str, str, str, float]]:
     """(id, scope, body, hash, weight) for every active Layer-B rule on disk.
     weight = helpful - contradicted, the feedback signal used to nudge ranking."""
     # Local import to keep this module importable without the markdown helpers.
-    import sys
-    sys.path.insert(0, str(ENGINE))
-    from common import read_note
+    from cogmem.common import read_note
 
     # Poison-resistance gate (opt-in): when enforcing, a rule whose verifiable
     # credential is missing or tampered is excluded from the recall index.
     pv = None
     try:
-        import config
+        from cogmem import config
+
         if config.load().get("provenance_enforce", False):
-            import provenance as pv
+            from cogmem import provenance as pv
     except Exception:  # noqa: BLE001 — provenance is optional; never block indexing
         pv = None
 
@@ -61,8 +59,9 @@ def current_rules() -> list[tuple[str, str, str, str, float]]:
         if pv is not None and not _provenance_ok(pv, meta, body, f):
             continue
         weight = float(int(meta.get("helpful", 0)) - int(meta.get("contradicted", 0)))
-        out.append((meta.get("id", f.stem), meta.get("scope", "universal"),
-                    body, _body_hash(body), weight))
+        out.append(
+            (meta.get("id", f.stem), meta.get("scope", "universal"), body, _body_hash(body), weight)
+        )
     return out
 
 
@@ -85,10 +84,12 @@ def incremental_update(conn: sqlite3.Connection, model) -> dict:
     current = current_rules()
     current_ids = {r[0] for r in current}
 
-    to_embed = [(rid, scope, body, h, w) for rid, scope, body, h, w in current
-                if existing.get(rid) != h]
-    unchanged = [(rid, scope, body, h, w) for rid, scope, body, h, w in current
-                 if existing.get(rid) == h]
+    to_embed = [
+        (rid, scope, body, h, w) for rid, scope, body, h, w in current if existing.get(rid) != h
+    ]
+    unchanged = [
+        (rid, scope, body, h, w) for rid, scope, body, h, w in current if existing.get(rid) == h
+    ]
     removed = [rid for rid in existing if rid not in current_ids]
 
     if to_embed:
@@ -99,13 +100,11 @@ def incremental_update(conn: sqlite3.Connection, model) -> dict:
                 (rid, scope, body, h, w, vec.astype("float32").tobytes()),
             )
     for rid, scope, body, h, w in unchanged:
-        conn.execute("UPDATE rules SET scope=?, text=?, weight=? WHERE id=?",
-                     (scope, body, w, rid))
+        conn.execute("UPDATE rules SET scope=?, text=?, weight=? WHERE id=?", (scope, body, w, rid))
     for rid in removed:
         conn.execute("DELETE FROM rules WHERE id = ?", (rid,))
     conn.commit()
-    return {"added_or_updated": len(to_embed), "removed": len(removed),
-            "total": len(current)}
+    return {"added_or_updated": len(to_embed), "removed": len(removed), "total": len(current)}
 
 
 def load_matrix(conn: sqlite3.Connection) -> tuple[list, list, list, list, np.ndarray]:

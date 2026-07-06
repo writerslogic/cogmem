@@ -15,9 +15,8 @@ import logging
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import config
-from common import VAULT
+from cogmem import config
+from cogmem.common import VAULT
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("cogmem.tune")
@@ -27,7 +26,7 @@ RULES_WARN = 200         # Layer-B rules above this suggests dedup is too loose
 
 
 def tune_thresholds() -> None:
-    import eval as evalmod
+    from cogmem import eval as evalmod
     data = evalmod.load_eval_set(regen=False)
     if not data:
         log.info("No eval set; skipping threshold tuning.")

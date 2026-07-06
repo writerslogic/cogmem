@@ -27,6 +27,10 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
+# ── Packaging build artifacts ────────────────────────────────────────────────
+build/
+dist/
+
 # ── Derived indexes / databases ──────────────────────────────────────────────
 engine/index.db
 *.db

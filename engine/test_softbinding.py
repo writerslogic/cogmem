@@ -2,7 +2,7 @@
 
 import unittest
 
-import softbinding
+from cogmem import softbinding
 
 
 # A document-length paragraph used for the whole-doc / edit / unrelated tests.

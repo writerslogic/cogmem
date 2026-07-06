@@ -18,25 +18,20 @@ Usage:
 import json
 import logging
 import socket
-import sys
 import threading
-from pathlib import Path
 
 import numpy as np
 
-ENGINE = Path(__file__).resolve().parent
-sys.path.insert(0, str(ENGINE))
-import indexstore
-import config
+from cogmem import config, indexstore
+from cogmem.common import SOCK_PATH
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.daemon")
 
-SOCK_PATH = ENGINE / "recall.sock"
 EMBED_MODEL = config.embed_model()
 RERANK_MODEL = config.rerank_model()
-COSINE_PREFILTER = 12   # rerank the top-N cosine candidates
-WEIGHT_NUDGE = 0.4      # how much feedback weight tips the rerank ordering
+COSINE_PREFILTER = 12  # rerank the top-N cosine candidates
+WEIGHT_NUDGE = 0.4  # how much feedback weight tips the rerank ordering
 
 
 class Recall:
@@ -100,13 +95,21 @@ class Recall:
             key=lambda t: t[1] + WEIGHT_NUDGE * float(weights[t[0]]),
             reverse=True,
         )[:k]
-        return [{"id": ids[i], "scope": scopes[i], "score": round(float(sims[i]), 3),
-                 "rerank": round(float(r), 3), "weight": weights[i], "text": texts[i]}
-                for i, r in ranked]
+        return [
+            {
+                "id": ids[i],
+                "scope": scopes[i],
+                "score": round(float(sims[i]), 3),
+                "rerank": round(float(r), 3),
+                "weight": weights[i],
+                "text": texts[i],
+            }
+            for i, r in ranked
+        ]
 
 
-MAX_MSG = 1 << 20   # 1 MiB ceiling on a single request, so a client that never sends
-                    # a newline can't grow the buffer without bound.
+MAX_MSG = 1 << 20  # 1 MiB ceiling on a single request, so a client that never sends
+# a newline can't grow the buffer without bound.
 
 
 def _recv_line(conn: socket.socket) -> str:

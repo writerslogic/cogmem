@@ -14,10 +14,8 @@ Usage:
 import json
 import logging
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import COGMEM, VAULT, write_note
+from cogmem.common import COGMEM, VAULT, write_note
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("cogmem.migrate")

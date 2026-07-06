@@ -1,7 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cogmem"
+version = "2.6.0"
+description = "A self-improving, verifiable memory layer for AI coding agents."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [{ name = "WritersLogic" }]
+keywords = ["mcp", "agent-memory", "provenance", "did", "scitt", "verifiable-credentials"]
+# Core install (CLI + MCP server + verifiable-memory tools). Semantic recall is
+# an optional extra so a provenance-only install stays small (no onnxruntime).
+dependencies = [
+    "cryptography>=49.0.0",
+    "cbor2>=5.9.0",
+]
+
+[project.optional-dependencies]
+recall = ["fastembed>=0.8.0", "numpy>=1.26"]
+
+[project.urls]
+Homepage = "https://github.com/writerslogic/cogmem"
+Issues = "https://github.com/writerslogic/cogmem/issues"
+
+[project.scripts]
+cogmem = "cogmem.cli:main"
+
+[tool.setuptools]
+# The import package `cogmem` lives in the engine/ directory (no file move, so the
+# installer keeps its existing engine/*.py paths).
+packages = ["cogmem"]
+package-dir = { cogmem = "engine" }
+
+[tool.setuptools.package-data]
+# Ship the Claude Code hook scripts so `cogmem init` can materialize them from a
+# pip install (they live under engine/hooks/ = cogmem/hooks/).
+cogmem = ["hooks/*.sh"]
+
 [tool.ruff]
 # The engine is stdlib-only Python; lint for real defects, not house style.
 line-length = 100
-extend-exclude = [".venv"]
+extend-exclude = [".venv", "build", "dist"]
 
 [tool.ruff.lint]
 # E/W = pycodestyle, F = pyflakes (undefined names, unused imports — real bugs).
@@ -9,5 +50,5 @@ select = ["E", "F", "W"]
 ignore = [
     "E501",  # long lines: pervasive and deliberate in the prompt/docstring strings
     "E741",  # `l` as a loop/comprehension variable is used idiomatically throughout
-    "E402",  # modules intentionally `sys.path.insert(...)` before importing siblings
+    "E402",  # a few modules import after a small amount of setup code, by design
 ]

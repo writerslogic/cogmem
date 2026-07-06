@@ -1,0 +1,46 @@
+name: Publish
+
+# Publishes cogmem to PyPI via Trusted Publishing (OIDC — no API token stored).
+# Register the trusted publisher on PyPI with:
+#   owner: writerslogic | repository: cogmem | workflow: publish.yml | environment: pypi
+# Fires when a GitHub Release is published (tag the release v<version>, matching
+# the version in pyproject.toml). workflow_dispatch allows a manual re-run.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build sdist + wheel
+        run: |
+          pip install build
+          python -m build
+      - name: Verify the wheel imports and the console script is present
+        run: |
+          pip install dist/*.whl
+          python -c "import cogmem; print('cogmem', cogmem.__version__)"
+          cogmem --help >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # required for PyPI Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

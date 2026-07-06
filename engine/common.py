@@ -17,6 +17,13 @@ COGMEM = Path(os.environ.get("COGMEM_HOME", Path.home() / ".claude" / "cogmem"))
 VAULT = COGMEM / "vault"
 CLAUDE_DIR = Path.home() / ".claude"
 
+# Derived runtime artifacts live under COGMEM_HOME, NOT next to the code: a pip
+# install runs from site-packages (read-only, shared across COGMEM_HOMEs), so the
+# recall socket and semantic index must sit in the user's home to stay writable and
+# per-install isolated.
+SOCK_PATH = COGMEM / "recall.sock"
+INDEX_DB = COGMEM / "index.db"
+
 API_URL = "https://api.anthropic.com/v1/messages"
 
 
@@ -25,11 +32,13 @@ def api_call(model: str, prompt: str, max_tokens: int) -> str | None:
     if not key:
         log.error("ANTHROPIC_API_KEY not set")
         return None
-    body = json.dumps({
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}],
-    }).encode()
+    body = json.dumps(
+        {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+    ).encode()
     req = urllib.request.Request(
         API_URL,
         data=body,

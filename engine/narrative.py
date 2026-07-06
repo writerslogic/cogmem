@@ -19,11 +19,9 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import VAULT, api_call
-import config
+from cogmem.common import VAULT, api_call
+from cogmem import config
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("cogmem.narrative")

@@ -23,6 +23,20 @@ cogmem learns how you work across sessions so your agent gets more accurate and 
 
 ## Installation
 
+### From PyPI
+
+```bash
+pip install cogmem            # CLI + MCP server + verifiable-memory tools
+pip install 'cogmem[recall]'  # add local semantic recall (fastembed)
+cogmem init                   # wire the Claude Code hooks + build the index
+```
+
+`pip install cogmem` gives you the `cogmem` CLI and the MCP server (`cogmem mcp`, or `uvx cogmem mcp` on demand) — the verifiable-memory tools need only the core install. Add the `[recall]` extra for local semantic recall, then run `cogmem init` to wire the full learning loop (the `SessionStart`/`UserPromptSubmit`/`Stop` hooks and the index) into Claude Code. `cogmem init` is idempotent; re-run it any time.
+
+### Clone installer (turnkey, with the warm daemon)
+
+The clone installer does everything `pip install` + `cogmem init` does, plus sets up the warm recall daemon (launchd/systemd) as a managed service:
+
 ```bash
 git clone https://github.com/writerslogic/cogmem.git
 cd cogmem
@@ -37,10 +51,12 @@ curl -fsSL https://raw.githubusercontent.com/writerslogic/cogmem/main/install.sh
 
 `install.sh` is idempotent — run it again any time to upgrade in place. It sets up
 the code under `~/.claude/cogmem`, a self-contained virtualenv with dependencies,
-the `cogmem` CLI on your PATH, the Claude Code hooks, and (on macOS) a warm recall
-daemon. Requires **Python 3.12+**; semantic recall runs on a local model
-(fastembed, no external API). Pass `--no-daemon` or `--no-hooks` to skip those
-steps; set `COGMEM_HOME` to install elsewhere.
+the `cogmem` CLI on your PATH, the Claude Code hooks, and a warm recall daemon
+(a launchd agent on macOS, a `systemd --user` service on Linux). Requires
+**Python 3.12+**; semantic recall runs on a local model (fastembed, no external
+API). Pass `--no-daemon` or `--no-hooks` to skip those steps; set `COGMEM_HOME`
+to install elsewhere — the CLI, engine, and hooks all resolve it at runtime, so
+a non-default install keeps its memory and identity fully self-contained.
 
 ## Custom Installation
 

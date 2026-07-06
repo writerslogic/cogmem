@@ -12,7 +12,7 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty')
 [[ "$STOP_REASON" == "error" ]] && exit 0
 
 HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COGMEM_DIR="${COGMEM_HOME:-$HOME/.claude/cogmem}"
+COGMEM_DIR="${COGMEM_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 STREAM_FILE="$COGMEM_DIR/stream/events.jsonl"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 PROJECT=$(basename "$CWD" 2>/dev/null || echo "unknown")

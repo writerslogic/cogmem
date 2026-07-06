@@ -20,9 +20,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import VAULT, CLAUDE_DIR, read_note, write_note
-from metrics import scope_tokens, PER_SCOPE_CAP
+from cogmem.common import VAULT, CLAUDE_DIR, read_note, write_note
+from cogmem.metrics import scope_tokens, PER_SCOPE_CAP
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("cogmem.review")

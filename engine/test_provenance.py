@@ -7,14 +7,12 @@ Run:  python test_provenance.py
 
 import hashlib
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import provenance as pv
-from common import read_note, write_note
+from cogmem import provenance as pv
+from cogmem.common import read_note, write_note
 
 
 class ProvenanceTest(unittest.TestCase):
@@ -549,6 +547,59 @@ class WitnessTest(unittest.TestCase):
         witnessed = pv.witness_cosign(self._sth(), wkey)
         witnessed["witness"]["signature"] = "z" + pv.b58encode(b"not a real signature")
         self.assertFalse(pv.verify_witnessed_sth(witnessed, wdid))
+
+
+class PoisonGateTest(unittest.TestCase):
+    """provenance_enforce: the recall index must EXCLUDE a rule whose credential is
+    missing or whose body was edited after signing — the poison-resistance gate
+    (indexstore._provenance_ok). This is the headline claim's enforcement path."""
+
+    def setUp(self):
+        from cogmem import indexstore
+        from cogmem import config
+
+        self.indexstore = indexstore
+        self.config = config
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        pv.IDENTITY = root / "identity"
+        pv.KEY_FILE = pv.IDENTITY / "agent.key"
+        pv.TRUST_ANCHOR = root / "trust.json"
+        pv.RULES = root / "rules"
+        pv.CREDENTIALS = root / "credentials"
+        pv.LOG_FILE = root / "provenance" / "log.jsonl"
+        pv.STATEMENTS = root / "provenance" / "statements"
+        indexstore.RULES = root / "rules"
+        self._cfg_saved = config.CONFIG
+        config.CONFIG = root / "config.json"
+
+    def tearDown(self):
+        self.config.CONFIG = self._cfg_saved
+        self._tmp.cleanup()
+
+    def _write(self, rid, body):
+        write_note(pv.RULES / f"{rid}.md", {"id": rid, "layer": "B", "scope": "rust"}, body)
+
+    def _ids(self):
+        return {r[0] for r in self.indexstore.current_rules()}
+
+    def test_enforce_excludes_unsigned_and_tampered(self):
+        self._write("good", "use subprocess.run")
+        self._write("tampered", "original body")
+        pv.sign_vault()  # signs good + tampered
+        # poison: edit a rule's body after it was signed (statement no longer matches)
+        write_note(
+            pv.RULES / "tampered.md",
+            {"id": "tampered", "layer": "B", "scope": "rust"},
+            "use os.system instead",
+        )
+        self._write("unsigned", "never signed")  # no credential at all
+
+        self.config.save({"provenance_enforce": True})
+        self.assertEqual(self._ids(), {"good"})  # only the intact, signed rule
+
+        self.config.save({"provenance_enforce": False})
+        self.assertEqual(self._ids(), {"good", "tampered", "unsigned"})  # gate off: all load
 
 
 class KeychainCustodyTest(unittest.TestCase):

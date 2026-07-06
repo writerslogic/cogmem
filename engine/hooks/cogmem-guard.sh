@@ -5,15 +5,20 @@
 # lesson as context but lets the command run. Strictly fail-open: any error allows.
 set -uo pipefail
 
+# Resolve cogmem's home from COGMEM_HOME, else from this hook's own location
+# ($COGMEM_HOME/hooks/), so a non-default install operates on its own vault.
+COGMEM_HOME="${COGMEM_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [[ -z "$CMD" ]] && exit 0
 
-ENGINE="$HOME/.claude/cogmem/engine"
-VENV_PY="$ENGINE/.venv/bin/python3"
-[[ -x "$VENV_PY" ]] || exit 0
+# Resolve a Python that can import cogmem (see cogmem-recall.sh for the rationale).
+PY="$(cat "$COGMEM_HOME/.cogmem-python" 2>/dev/null)"
+[[ -x "$PY" ]] || PY="$COGMEM_HOME/engine/.venv/bin/python3"
+[[ -x "$PY" ]] || PY="python3"
 
-HITS=$("$VENV_PY" "$ENGINE/guard.py" "$CMD" 2>/dev/null)
+HITS=$("$PY" -m cogmem.guard "$CMD" 2>/dev/null)
 [[ -z "$HITS" || "$HITS" == "[]" ]] && exit 0
 
 BLOCK=$(echo "$HITS" | jq -r 'map(select(.guard=="block")) | length' 2>/dev/null)

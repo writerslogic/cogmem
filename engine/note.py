@@ -15,7 +15,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-NOTES = Path.home() / ".claude" / "cogmem" / "vault" / ".notes.jsonl"
+# Resolve the vault from COGMEM_HOME like the rest of the engine, so a non-default
+# install ($COGMEM_HOME) records notes into its own vault instead of the default one.
+COGMEM = Path(os.environ.get("COGMEM_HOME", Path.home() / ".claude" / "cogmem"))
+NOTES = COGMEM / "vault" / ".notes.jsonl"
 
 
 def main() -> int:
@@ -25,11 +28,16 @@ def main() -> int:
         return 1
     NOTES.parent.mkdir(parents=True, exist_ok=True)
     with NOTES.open("a") as fh:
-        fh.write(json.dumps({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "cwd": os.getcwd(),
-            "text": text,
-        }) + "\n")
+        fh.write(
+            json.dumps(
+                {
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "cwd": os.getcwd(),
+                    "text": text,
+                }
+            )
+            + "\n"
+        )
     sys.stdout.write("noted\n")
     return 0
 

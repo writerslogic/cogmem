@@ -33,7 +33,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
 
-from common import VAULT, COGMEM, read_note
+from cogmem.common import VAULT, COGMEM, read_note
 
 log = logging.getLogger("cogmem.provenance")
 
@@ -104,7 +104,7 @@ def _keychain_available() -> bool:
 
 def _keychain_enabled() -> bool:
     try:
-        import config
+        from cogmem import config
 
         return bool(config.load().get("keychain", False))
     except Exception:  # noqa: BLE001 — config is optional; default off
@@ -1084,7 +1084,7 @@ if __name__ == "__main__":
             log.info("Keep this key on a SEPARATE machine, then register it on the agent host:")
             log.info("  cogmem witness trust %s", wdid)
         elif sub == "trust" and len(sys.argv) > 3:
-            import config
+            from cogmem import config
 
             cfg = config.load()
             cfg["witness_did"] = sys.argv[3]
@@ -1095,7 +1095,7 @@ if __name__ == "__main__":
             wkey = Ed25519PrivateKey.from_private_bytes(Path(sys.argv[4]).read_bytes())
             sys.stdout.write(json.dumps(witness_cosign(sth, wkey), indent=2) + "\n")
         elif sub == "verify" and len(sys.argv) > 3:
-            import config
+            from cogmem import config
 
             wdid = config.load().get("witness_did")
             if not wdid:

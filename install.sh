@@ -2,15 +2,15 @@
 # cogmem installer — idempotent and re-runnable.
 #
 # Sets up the full local system: code at ~/.claude/cogmem, a Python venv with
-# dependencies, the `cogmem` CLI on your PATH, Claude Code hooks, and (on macOS)
-# a warm recall daemon. Running it again upgrades in place without duplicating
-# anything. No data leaves your machine.
+# dependencies, the `cogmem` CLI on your PATH, Claude Code hooks, and a warm
+# recall daemon (launchd on macOS, systemd --user on Linux). Running it again
+# upgrades in place without duplicating anything. No data leaves your machine.
 #
 #   git clone https://github.com/writerslogic/cogmem.git && cd cogmem && ./install.sh
 #   curl -fsSL https://raw.githubusercontent.com/writerslogic/cogmem/main/install.sh | bash
 #
 # Flags / env:
-#   --no-daemon          skip the macOS launchd daemon (recall lazy-spawns anyway)
+#   --no-daemon          skip the warm recall daemon (recall lazy-spawns anyway)
 #   --no-hooks           skip wiring Claude Code hooks into settings.json
 #   COGMEM_HOME=<dir>     install location          (default: ~/.claude/cogmem)
 #   COGMEM_BIN=<dir>      where to symlink the CLI   (default: ~/.local/bin)
@@ -80,7 +80,7 @@ if [ "$SRC" != "$COGMEM_HOME" ]; then
     done
   fi
 fi
-chmod +x "$COGMEM_HOME/cogmem" "$COGMEM_HOME"/hooks/*.sh 2>/dev/null || true
+chmod +x "$COGMEM_HOME/cogmem" "$COGMEM_HOME"/engine/hooks/*.sh 2>/dev/null || true
 
 # ── 4. Virtualenv + dependencies ─────────────────────────────────────────────
 VENV="$COGMEM_HOME/engine/.venv"
@@ -88,9 +88,11 @@ if [ ! -x "$VENV/bin/python3" ]; then
   say "creating virtualenv (engine/.venv)"
   "$PY_BIN" -m venv "$VENV"
 fi
-say "installing dependencies (fastembed pulls onnxruntime — first run is slow)"
+say "installing cogmem + dependencies (fastembed pulls onnxruntime — first run is slow)"
 "$VENV/bin/python3" -m pip install --quiet --upgrade pip
-"$VENV/bin/python3" -m pip install --quiet -r "$COGMEM_HOME/requirements.txt"
+# Editable install of the package with the recall extra (fastembed/numpy), so the
+# CLI, hooks (which run engine/*.py by path), and daemon all resolve `import cogmem`.
+"$VENV/bin/python3" -m pip install --quiet -e "${COGMEM_HOME}[recall]"
 
 # ── 5. CLI on PATH ───────────────────────────────────────────────────────────
 mkdir -p "$BIN_DIR"
@@ -101,53 +103,26 @@ case ":$PATH:" in
   *) warn "$BIN_DIR is not on your PATH — add: export PATH=\"$BIN_DIR:\$PATH\"" ;;
 esac
 
-# ── 6. Claude Code hooks (idempotent settings.json merge) ────────────────────
+# ── 6. Claude Code hooks + index (via `cogmem init`, idempotent) ─────────────
+# `cogmem init` records the interpreter, materializes the hook scripts into
+# $COGMEM_HOME/hooks, merges them into settings.json, and builds the recall index —
+# the same wiring a `pip install cogmem` user runs.
 if [ "$WANT_HOOKS" -eq 1 ]; then
-  say "wiring Claude Code hooks into settings.json (idempotent)"
-  COGMEM_HOME="$COGMEM_HOME" CLAUDE_DIR="$CLAUDE_DIR" "$VENV/bin/python3" - <<'PY'
-import json, os
-from pathlib import Path
-
-home = Path(os.environ["COGMEM_HOME"])
-hooks_dir = home / "hooks"
-settings = Path(os.environ["CLAUDE_DIR"]) / "settings.json"
-
-# (event, matcher, hook script) — the working v2 integration.
-WIRING = [
-    ("SessionStart",     "*",          "cogmem-activate.sh"),
-    ("UserPromptSubmit", "*",          "cogmem-recall.sh"),
-    ("PreToolUse",       "Bash",       "cogmem-guard.sh"),
-    ("PostToolUse",      "Edit|Write", "cogmem-context.sh"),
-    ("Stop",             "*",          "cogmem-capture.sh"),
-]
-
-data = json.loads(settings.read_text()) if settings.exists() else {}
-hooks = data.setdefault("hooks", {})
-added = 0
-for event, matcher, script in WIRING:
-    cmd = str(hooks_dir / script)
-    arr = hooks.setdefault(event, [])
-    # Idempotent: skip if any entry already runs this cogmem hook.
-    if any(h.get("command") == cmd
-           for entry in arr for h in entry.get("hooks", [])):
-        continue
-    arr.append({"matcher": matcher,
-                "hooks": [{"type": "command", "command": cmd}]})
-    added += 1
-
-if added or not settings.exists():
-    settings.parent.mkdir(parents=True, exist_ok=True)
-    settings.write_text(json.dumps(data, indent=2) + "\n")
-print(f"   {added} hook(s) added, {len(WIRING) - added} already present")
-PY
+  say "wiring Claude Code hooks + building index (cogmem init, idempotent)"
+  COGMEM_HOME="$COGMEM_HOME" CLAUDE_DIR="$CLAUDE_DIR" "$VENV/bin/cogmem" init
 fi
 
-# ── 7. macOS warm recall daemon (optional; recall lazy-spawns without it) ─────
-if [ "$WANT_DAEMON" -eq 1 ] && [ "$(uname -s)" = "Darwin" ]; then
-  PLIST="$HOME/Library/LaunchAgents/com.cogmem.recall.plist"
-  say "installing launchd recall daemon"
-  mkdir -p "$HOME/Library/LaunchAgents"
-  cat > "$PLIST" <<PLISTEOF
+# ── 7. Warm recall daemon (optional; recall lazy-spawns without it) ───────────
+# launchd on macOS, a systemd --user service on Linux. Either way the daemon is
+# the same engine/daemon.py, kept alive across sessions so the first prompt's
+# recall is fast instead of paying a model load.
+if [ "$WANT_DAEMON" -eq 1 ]; then
+  OS="$(uname -s)"
+  if [ "$OS" = "Darwin" ]; then
+    PLIST="$HOME/Library/LaunchAgents/com.cogmem.recall.plist"
+    say "installing launchd recall daemon"
+    mkdir -p "$HOME/Library/LaunchAgents"
+    cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -165,15 +140,46 @@ if [ "$WANT_DAEMON" -eq 1 ] && [ "$(uname -s)" = "Darwin" ]; then
 </dict>
 </plist>
 PLISTEOF
-  launchctl unload "$PLIST" >/dev/null 2>&1 || true
-  launchctl load  "$PLIST" >/dev/null 2>&1 || warn "could not load launchd agent (daemon will lazy-spawn instead)"
+    launchctl unload "$PLIST" >/dev/null 2>&1 || true
+    launchctl load  "$PLIST" >/dev/null 2>&1 || warn "could not load launchd agent (daemon will lazy-spawn instead)"
+  elif [ "$OS" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
+    UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    say "installing systemd --user recall daemon"
+    mkdir -p "$UNIT_DIR"
+    cat > "$UNIT_DIR/cogmem-recall.service" <<UNITEOF
+[Unit]
+Description=cogmem warm recall daemon
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=$VENV/bin/python3 $COGMEM_HOME/engine/daemon.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+UNITEOF
+    if systemctl --user daemon-reload >/dev/null 2>&1 \
+       && systemctl --user enable --now cogmem-recall.service >/dev/null 2>&1; then
+      say "systemd user service enabled (cogmem-recall.service)"
+    else
+      warn "could not enable systemd user service (daemon will lazy-spawn instead). On a headless host, persist it with: loginctl enable-linger \"\$USER\""
+    fi
+  fi
 fi
 
-# ── 8. First-run init: build the index, materialize identity ─────────────────
-say "building recall index"
-"$VENV/bin/python3" "$COGMEM_HOME/engine/index.py" >/dev/null 2>&1 || warn "index build skipped (no rules yet — normal on a fresh install)"
+# ── 8. First-run index (only when `cogmem init` above didn't already build it) ─
+if [ "$WANT_HOOKS" -eq 0 ]; then
+  say "building recall index"
+  "$VENV/bin/python3" -m cogmem.index >/dev/null 2>&1 || warn "index build skipped (no rules yet — normal on a fresh install)"
+fi
 
 echo
 say "cogmem installed. Try:  cogmem status"
 echo "   docs:      $COGMEM_HOME/README.md"
-echo "   uninstall: launchctl unload ~/Library/LaunchAgents/com.cogmem.recall.plist; rm ~/.local/bin/cogmem; rm -rf $COGMEM_HOME"
+if [ "$(uname -s)" = "Linux" ]; then
+  echo "   uninstall: systemctl --user disable --now cogmem-recall.service; rm ~/.local/bin/cogmem; rm -rf $COGMEM_HOME"
+else
+  echo "   uninstall: launchctl unload ~/Library/LaunchAgents/com.cogmem.recall.plist; rm ~/.local/bin/cogmem; rm -rf $COGMEM_HOME"
+fi
