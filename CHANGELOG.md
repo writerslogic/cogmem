@@ -3,6 +3,13 @@
 All notable changes to this project are generated from the commit history.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [Conventional Commits](https://www.conventionalcommits.org/).
+## [2.7.0] - 2026-07-06
+
+### Added
+- Package cogmem for PyPI with full-loop `cogmem init`
+
+### Documentation
+- Update changelog [skip ci]
 ## [2.6.0] - 2026-06-29
 
 ### Added
