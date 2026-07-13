@@ -1,3 +1,4 @@
+<!-- mcp-name: io.github.writerslogic/cogmem -->
 <p align="center">
   <img src="https://raw.githubusercontent.com/writerslogic/cogmem/main/assets/logo-spin.gif" width="200" alt="cogmem">
 </p>
