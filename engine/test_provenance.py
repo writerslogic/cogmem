@@ -357,6 +357,8 @@ class VaultPoisonTest(unittest.TestCase):
         pv.RULES = root / "rules"
         pv.CREDENTIALS = root / "credentials"
         pv.STATEMENTS = root / "provenance" / "statements"
+        pv.STATUS_INDEX = root / "provenance" / "status-index.json"
+        pv.STATUS_REVOKED = root / "provenance" / "status-revoked.json"
         pv.TRUST_ANCHOR = root / "trust.json"
         pv.RULES.mkdir(parents=True)
 
@@ -569,6 +571,8 @@ class PoisonGateTest(unittest.TestCase):
         pv.CREDENTIALS = root / "credentials"
         pv.LOG_FILE = root / "provenance" / "log.jsonl"
         pv.STATEMENTS = root / "provenance" / "statements"
+        pv.STATUS_INDEX = root / "provenance" / "status-index.json"
+        pv.STATUS_REVOKED = root / "provenance" / "status-revoked.json"
         indexstore.RULES = root / "rules"
         self._cfg_saved = config.CONFIG
         config.CONFIG = root / "config.json"
@@ -668,6 +672,113 @@ class CoseHardeningTest(unittest.TestCase):
         arr[0] = cbor2.dumps(ph)
         with self.assertRaises(ValueError):
             pv._cose_verify(cbor2.dumps(arr))
+
+
+class JcsCanonicalizationTest(unittest.TestCase):
+    """RFC 8785 (JSON Canonicalization Scheme) conformance for _canonical — the exact
+    signing input eddsa-jcs-2022 mandates. The old sorted-key json.dumps diverged on
+    non-ASCII (\\u-escaped) and on UTF-16 key ordering; these lock the correct form in."""
+
+    def test_string_escaping_vector(self):
+        # ECMAScript-minimal escaping: short escapes for \b\t\n\f\r, \u00xx for other
+        # control chars, literal UTF-8 for non-ASCII, / left unescaped (RFC 8785 §3.2.2.2)
+        s = '\b\t\n\f\r\x01/"\\€'
+        expected = '{"s":"\\b\\t\\n\\f\\r\\u0001/\\"\\\\€"}'.encode("utf-8")
+        self.assertEqual(pv._canonical({"s": s}), expected)
+
+    def test_key_ordering_is_ascii_lexicographic(self):
+        # uppercase sorts before lowercase by code unit, not case-folded
+        self.assertEqual(pv._canonical({"b": 1, "a": 2, "Z": 3}), b'{"Z":3,"a":2,"b":1}')
+
+    def test_non_ascii_values_are_literal_utf8(self):
+        result = pv._canonical({"m": "café — dash"})
+        self.assertIn("café — dash".encode("utf-8"), result)
+        self.assertNotIn(b"\\u", result)  # never \u-escaped, unlike plain json.dumps
+
+    def test_key_ordering_is_utf16_not_codepoint(self):
+        # \U0001F600 encodes to UTF-16 as surrogate D83D..;  is a single unit E000.
+        # By UTF-16 code units D83D < E000, so the emoji key sorts FIRST — the opposite
+        # of a naive code-point sort (0xE000 < 0x1F600). This is the RFC 8785 §3.2.3 rule.
+        result = pv._canonical({"": 1, "\U0001f600": 2})
+        self.assertLess(
+            result.index("\U0001f600".encode("utf-8")), result.index("".encode("utf-8"))
+        )
+
+    def test_float_rejected(self):
+        with self.assertRaises(ValueError):
+            pv._canonical({"n": 1.5})
+
+    def test_non_ascii_credential_roundtrips(self):
+        # the actual bug: a memory with non-ASCII text must sign and verify under JCS
+        vc = pv.issue_credential(
+            "rule-u", "préfère subprocess.run — jamais os.system", {"kind": "rule"}
+        )
+        self.assertTrue(pv.verify_credential(vc))
+        vc["credentialSubject"]["statement"] = "use os.system"
+        self.assertFalse(pv.verify_credential(vc))
+
+
+class StatusListRevocationTest(unittest.TestCase):
+    """BitstringStatusList (W3C VC 2.0): a memory's credential carries a status entry,
+    revoking it sets the bit, and the signed status-list credential reads back revoked."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        pv.IDENTITY = root / "identity"
+        pv.KEY_FILE = pv.IDENTITY / "agent.key"
+        pv.TRUST_ANCHOR = root / "trust.json"
+        pv.STATUS_INDEX = root / "provenance" / "status-index.json"
+        pv.STATUS_REVOKED = root / "provenance" / "status-revoked.json"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_index_is_stable_and_incrementing(self):
+        self.assertEqual(pv._status_index("a"), 0)
+        self.assertEqual(pv._status_index("b"), 1)
+        self.assertEqual(pv._status_index("a"), 0)  # stable across calls
+
+    def test_credential_carries_status_entry(self):
+        vc = pv.issue_credential(
+            "rule-1", "x", {"kind": "rule"}, status_entry=pv.credential_status_entry("rule-1")
+        )
+        self.assertTrue(pv.verify_credential(vc))  # status entry is inside the signed VC
+        self.assertEqual(vc["credentialStatus"]["type"], "BitstringStatusListEntry")
+        self.assertEqual(vc["credentialStatus"]["statusPurpose"], "revocation")
+
+    def test_status_list_credential_verifies(self):
+        pv.credential_status_entry("rule-1")
+        sl = pv.status_list_credential()
+        self.assertTrue(pv.verify_credential(sl))
+        self.assertIn("BitstringStatusListCredential", sl["type"])
+        self.assertEqual(sl["credentialSubject"]["encodedList"][0], "u")  # multibase prefix
+
+    def test_revocation_flips_the_bit(self):
+        entry = pv.credential_status_entry("rule-1")
+        # not revoked initially
+        self.assertFalse(pv.is_revoked("rule-1"))
+        self.assertFalse(pv.status_is_revoked(entry, pv.status_list_credential()))
+        # revoke, then both the local flag and the published list report revoked
+        pv.revoke_memory("rule-1")
+        self.assertTrue(pv.is_revoked("rule-1"))
+        self.assertTrue(pv.status_is_revoked(entry, pv.status_list_credential()))
+
+    def test_only_revoked_index_is_set(self):
+        e1 = pv.credential_status_entry("rule-1")
+        e2 = pv.credential_status_entry("rule-2")
+        pv.revoke_memory("rule-2")
+        sl = pv.status_list_credential()
+        self.assertFalse(pv.status_is_revoked(e1, sl))  # untouched neighbour stays active
+        self.assertTrue(pv.status_is_revoked(e2, sl))
+
+    def test_tampered_status_list_rejected(self):
+        entry = pv.credential_status_entry("rule-1")
+        pv.revoke_memory("rule-1")
+        sl = pv.status_list_credential()
+        sl["credentialSubject"]["encodedList"] = "u" + "A" * 40  # forge the bitstring
+        with self.assertRaises(ValueError):
+            pv.status_is_revoked(entry, sl)  # signature no longer matches the subject
 
 
 if __name__ == "__main__":

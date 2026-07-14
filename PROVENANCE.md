@@ -26,8 +26,8 @@ building toward in 2026.
   cannot fork or rewrite history alone. The witness's independence is operational (run it
   elsewhere); cogmem ships the protocol.
 - **Memories as W3C Verifiable Credentials** (VC Data Model v2). Each rule is issued
-  as an `AgentMemoryCredential` signed by the agent's DID via an `eddsa-jcs-2022`-style
-  Data Integrity proof. Stored in `vault/credentials/<id>.jsonld`.
+  as an `AgentMemoryCredential` signed by the agent's DID via an `eddsa-jcs-2022`
+  Data Integrity proof (RFC 8785 JCS canonicalization). Stored in `vault/credentials/<id>.jsonld`.
 - **SCITT-style transparency log** (`vault/provenance/log.jsonl`): an append-only,
   hash-chained, signed record of memory lifecycle events (created / updated /
   refined / demoted). Tampering with any entry breaks the chain; entries cannot be
@@ -77,7 +77,8 @@ CLI: `cogmem provenance status`, `cogmem sign-vault`, `cogmem verify`,
 |---|---|---|
 | Agent identity | W3C DID (`did:key`) | implemented |
 | Memory as a verifiable claim | W3C Verifiable Credentials v2 | implemented |
-| Signature suite | Data Integrity `eddsa-jcs-2022` (Ed25519) | implemented (JCS-style canonicalization) |
+| Revocation | W3C **Bitstring Status List** | implemented; per-memory status entry + signed status-list credential (`cogmem revoke` / `is-revoked`) |
+| Signature suite | Data Integrity `eddsa-jcs-2022` (Ed25519) | implemented (RFC 8785 JCS canonicalization) |
 | Signed statements | IETF **SCITT** COSE_Sign1 (CBOR, Ed25519) | implemented; byte-compatible with HMS (`coset`) |
 | Tamper-evident provenance | IETF **SCITT** transparency log | implemented, incl. signed tree head + RFC 6962 inclusion receipts |
 | Credential encoding | IETF **SD-JWT-VC** | roadmap |

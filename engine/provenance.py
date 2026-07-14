@@ -6,7 +6,7 @@ can be detected before it steers the agent. Built on real standards:
 
 - Agent identity is a `did:key` (W3C DID method) backed by a real Ed25519 keypair.
 - Each memory is issued as a W3C Verifiable Credential signed by the agent's DID
-  (an eddsa-jcs-2022-style Data Integrity proof over the canonical credential).
+  (an eddsa-jcs-2022 Data Integrity proof over the RFC 8785 JCS canonical credential).
 - Memory lifecycle events (created / refined / demoted) are recorded in an
   append-only, hash-chained, signed transparency log (SCITT-style): tampering with
   any entry breaks the chain, and entries cannot be forged without the agent key.
@@ -43,6 +43,14 @@ IDENTITY = VAULT / "identity"
 KEY_FILE = IDENTITY / "agent.key"  # raw 32-byte Ed25519 private key (local only)
 LOG_FILE = VAULT / "provenance" / "log.jsonl"
 STATEMENTS = VAULT / "provenance" / "statements"  # COSE_Sign1 SCITT signed statements
+STATUS_INDEX = VAULT / "provenance" / "status-index.json"  # memoryId -> status-list index
+STATUS_REVOKED = VAULT / "provenance" / "status-revoked.json"  # revoked indices
+
+# BitstringStatusList revocation (W3C). A demoted/retired memory has its bit set, so its
+# credential reads back revoked. 131072 is the spec's minimum list size (herd privacy);
+# for a local single-user log that privacy is moot, but the encoding stays conformant.
+_STATUS_LIST_SIZE = 131072
+STATUS_LIST_ID = "urn:cogmem:status-list:revocation"
 
 # Trust anchor: the agent DID pinned on first run. Kept OUTSIDE vault/ (one level
 # up, beside it) so an attacker who can only rewrite vault/ content — the stated
@@ -77,9 +85,49 @@ def b58decode(s: str) -> bytes:
     return b"\x00" * pad + body
 
 
+def _jcs_serialize(v) -> str:
+    """Serialize one value under RFC 8785 (JSON Canonicalization Scheme).
+
+    Object members are ordered by the UTF-16 code units of their names (§3.2.3);
+    strings use ECMAScript-minimal escaping with literal UTF-8 for non-ASCII, which
+    is exactly what `json.dumps(..., ensure_ascii=False)` emits (§3.2.2.2); integers
+    render as bare decimals. Floats are rejected: cogmem only canonicalizes strings,
+    integers, booleans, null, arrays, and objects, and a conformant ECMAScript number
+    serialization (§3.2.2.3) is out of scope until a float actually needs signing."""
+    if v is None:
+        return "null"
+    if v is True:
+        return "true"
+    if v is False:
+        return "false"
+    if isinstance(v, str):
+        return json.dumps(v, ensure_ascii=False)
+    if isinstance(v, bool):  # unreachable (handled above) but explicit before int
+        raise TypeError("bool already handled")
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        raise ValueError("JCS: float serialization is not supported (see _jcs_serialize)")
+    if isinstance(v, dict):
+        members = sorted(v.items(), key=lambda kv: kv[0].encode("utf-16-be"))
+        return (
+            "{"
+            + ",".join(
+                f"{json.dumps(k, ensure_ascii=False)}:{_jcs_serialize(val)}" for k, val in members
+            )
+            + "}"
+        )
+    if isinstance(v, (list, tuple)):
+        return "[" + ",".join(_jcs_serialize(x) for x in v) + "]"
+    raise TypeError(f"JCS: unsupported type {type(v).__name__}")
+
+
 def _canonical(obj: dict) -> bytes:
-    """Deterministic JSON (sorted keys, compact) — JCS-style for our string data."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    """RFC 8785 JCS canonical UTF-8 bytes — the exact signing input eddsa-jcs-2022
+    requires. For ASCII string payloads this is byte-identical to plain sorted-key
+    JSON; it diverges (correctly) for non-ASCII, which plain json.dumps would have
+    \\u-escaped."""
+    return _jcs_serialize(obj).encode("utf-8")
 
 
 def _sha256(data: bytes) -> str:
@@ -303,12 +351,19 @@ def _issuer_trusted(issuer: str, expected: str | None) -> bool:
 # --- verifiable credentials -----------------------------------------------------
 
 
-def issue_credential(memory_id: str, statement: str, meta: dict) -> dict:
+def issue_credential(
+    memory_id: str,
+    statement: str,
+    meta: dict,
+    status_entry: dict | None = None,
+    valid_until: str | None = None,
+) -> dict:
     key = _load_or_create_key()
     did = did_key(_pub_raw(key))
     now = datetime.now(timezone.utc).isoformat()
     vc = {
         "@context": ["https://www.w3.org/ns/credentials/v2"],
+        "id": f"urn:cogmem:vc:{memory_id}",
         "type": ["VerifiableCredential", "AgentMemoryCredential"],
         "issuer": did,
         "validFrom": now,
@@ -321,6 +376,10 @@ def issue_credential(memory_id: str, statement: str, meta: dict) -> dict:
             "sourceSession": meta.get("source_session", ""),
         },
     }
+    if valid_until:
+        vc["validUntil"] = valid_until
+    if status_entry:
+        vc["credentialStatus"] = status_entry
     proof = {
         "type": "DataIntegrityProof",
         "cryptosuite": "eddsa-jcs-2022",
@@ -347,6 +406,123 @@ def verify_credential(vc: dict, expected_issuer: str | None = None) -> bool:
     # A valid signature only proves "whoever holds this DID's key signed it"; pin the
     # issuer to the trusted agent so a self-consistent forgery under a foreign key fails.
     return _issuer_trusted(vc["issuer"], expected_issuer)
+
+
+# --- credential status (BitstringStatusList revocation) -------------------------
+# Each memory gets a stable index into a revocation bitstring. Revoking (a demoted or
+# retired memory) sets its bit; the signed BitstringStatusListCredential publishes the
+# whole list, and a relying party reads the credential's bit to learn its status. The
+# term set lives in the W3C VC v2 context, so no extra @context is needed.
+
+
+def _load_json(path: Path, default):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def _status_index(memory_id: str) -> int:
+    """The stable revocation-list index for a memory, allocating the next free slot on
+    first use. Persisted so a memory keeps the same bit across re-signs."""
+    m = _load_json(STATUS_INDEX, {"_next": 0})
+    if memory_id in m:
+        return m[memory_id]
+    idx = m["_next"]
+    if idx >= _STATUS_LIST_SIZE:
+        raise ValueError("status list is full")
+    m[memory_id] = idx
+    m["_next"] = idx + 1
+    STATUS_INDEX.parent.mkdir(parents=True, exist_ok=True)
+    STATUS_INDEX.write_text(json.dumps(m))
+    return idx
+
+
+def credential_status_entry(memory_id: str) -> dict:
+    """The BitstringStatusListEntry to embed in a memory's credential (before signing)."""
+    idx = _status_index(memory_id)
+    return {
+        "id": f"{STATUS_LIST_ID}#{idx}",
+        "type": "BitstringStatusListEntry",
+        "statusPurpose": "revocation",
+        "statusListIndex": str(idx),
+        "statusListCredential": STATUS_LIST_ID,
+    }
+
+
+def _revoked_indices() -> set[int]:
+    return set(_load_json(STATUS_REVOKED, []))
+
+
+def revoke_memory(memory_id: str) -> int:
+    """Set a memory's revocation bit (idempotent). Returns its status-list index."""
+    idx = _status_index(memory_id)
+    revoked = _revoked_indices()
+    revoked.add(idx)
+    STATUS_REVOKED.parent.mkdir(parents=True, exist_ok=True)
+    STATUS_REVOKED.write_text(json.dumps(sorted(revoked)))
+    return idx
+
+
+def is_revoked(memory_id: str) -> bool:
+    m = _load_json(STATUS_INDEX, {})
+    return memory_id in m and m[memory_id] in _revoked_indices()
+
+
+def _encoded_list() -> str:
+    """The `encodedList`: multibase-base64url (no pad, `u` prefix) of the GZIP-compressed
+    revocation bitstring. Bits are MSB-first within each byte (RFC-style, per the spec)."""
+    import gzip
+
+    ba = bytearray(_STATUS_LIST_SIZE // 8)
+    for idx in _revoked_indices():
+        ba[idx >> 3] |= 0x80 >> (idx & 7)
+    return "u" + _b64url_nopad(gzip.compress(bytes(ba), mtime=0))
+
+
+def status_list_credential() -> dict:
+    """The signed BitstringStatusListCredential (a W3C VC v2) publishing the current
+    revocation bitstring. Same eddsa-jcs-2022 Data Integrity proof as a memory credential."""
+    key = _load_or_create_key()
+    did = did_key(_pub_raw(key))
+    now = datetime.now(timezone.utc).isoformat()
+    vc = {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        "id": STATUS_LIST_ID,
+        "type": ["VerifiableCredential", "BitstringStatusListCredential"],
+        "issuer": did,
+        "validFrom": now,
+        "credentialSubject": {
+            "id": f"{STATUS_LIST_ID}#list",
+            "type": "BitstringStatusList",
+            "statusPurpose": "revocation",
+            "encodedList": _encoded_list(),
+        },
+    }
+    proof = {
+        "type": "DataIntegrityProof",
+        "cryptosuite": "eddsa-jcs-2022",
+        "created": now,
+        "verificationMethod": f"{did}#{did.split(':')[-1]}",
+        "proofPurpose": "assertionMethod",
+    }
+    proof["proofValue"] = "z" + b58encode(key.sign(_canonical({**vc, "proof": proof})))
+    vc["proof"] = proof
+    return vc
+
+
+def status_is_revoked(status_entry: dict, status_list_vc: dict) -> bool:
+    """Read a credential's revocation status: verify the status-list credential, then
+    decode its bitstring and return the bit at the credential's statusListIndex. Raises
+    if the status-list credential does not verify (it must not be trusted blindly)."""
+    import gzip
+
+    if not verify_credential(status_list_vc):
+        raise ValueError("status list credential does not verify")
+    encoded = status_list_vc["credentialSubject"]["encodedList"]
+    raw = gzip.decompress(_b64url_decode(encoded[1:]))  # strip the `u` multibase prefix
+    idx = int(status_entry["statusListIndex"])
+    return bool((raw[idx >> 3] >> (7 - (idx & 7))) & 1)
 
 
 # --- AI-agent identity credential (DIF identity layer) --------------------------
@@ -980,13 +1156,16 @@ def sign_vault() -> int:
                 existing = json.loads(cpath.read_text())
             except json.JSONDecodeError:
                 existing = {}
-            # already signed and unchanged -> skip; legitimately edited -> re-sign
-            if existing.get("credentialSubject", {}).get("statement") == body:
+            # already signed, unchanged, and still verifies -> skip; a changed body or a
+            # credential signed under the old canonicalization -> re-sign
+            if existing.get("credentialSubject", {}).get("statement") == body and verify_credential(
+                existing
+            ):
                 if not (STATEMENTS / f"{rid}.cose").exists():
                     _emit_statement("created", rid, existing)  # backfill missing statement
                 continue
             event = "updated"
-        vc = issue_credential(rid, body, meta)
+        vc = issue_credential(rid, body, meta, status_entry=credential_status_entry(rid))
         cpath.write_text(json.dumps(vc, indent=2))
         log_append(event, rid, vc)
         _emit_statement(event, rid, vc)
@@ -1127,6 +1306,21 @@ if __name__ == "__main__":
             "OK" if v["chain"]["ok"] else "BROKEN",
             v["chain"].get("entries", 0),
         )
+    elif command == "revoke":
+        if len(sys.argv) < 3:
+            log.error("Usage: provenance.py revoke <memory_id>")
+            sys.exit(1)
+        idx = revoke_memory(sys.argv[2])
+        log.info("Revoked memory %s (status-list index %d).", sys.argv[2], idx)
+    elif command == "is-revoked":
+        if len(sys.argv) < 3:
+            log.error("Usage: provenance.py is-revoked <memory_id>")
+            sys.exit(1)
+        revoked = is_revoked(sys.argv[2])
+        log.info("Memory %s: %s", sys.argv[2], "REVOKED" if revoked else "active")
+        sys.exit(1 if revoked else 0)
+    elif command == "status-list":
+        sys.stdout.write(json.dumps(status_list_credential(), indent=2) + "\n")
     elif command == "sth":
         sys.stdout.write(json.dumps(signed_tree_head(), indent=2) + "\n")
     elif command == "receipt":
@@ -1219,6 +1413,7 @@ if __name__ == "__main__":
         log.error(
             "Usage: provenance.py [status | sign-vault | verify | sth | "
             "receipt <id> | verify-receipt <file> | statement <id> | "
-            "verify-statement <file> | ica-assertion <issuer> <label>=<hash>...]"
+            "verify-statement <file> | revoke <id> | is-revoked <id> | status-list | "
+            "ica-assertion <issuer> <label>=<hash>...]"
         )
         sys.exit(1)

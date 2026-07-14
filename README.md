@@ -226,11 +226,14 @@ cogmem treats every stored memory as a signed artifact:
 - **W3C Verifiable Credentials**: every memory is signed with `eddsa-jcs-2022` Data Integrity proofs.
 - **COSE_Sign1 / SCITT signed statements**: byte-identical to the envelope format used by holographic-memory and crosstalk — independently verifiable by any of the three implementations.
 - **Hash-chained transparency log**: append-only JSONL with SHA-256 chaining, a signed Merkle tree head, and RFC 6962-style inclusion receipts.
+- **Revocation**: every credential carries a W3C [Bitstring Status List](https://www.w3.org/TR/vc-bitstring-status-list/) entry; a demoted or retired memory is revoked in a signed status-list credential.
 - **Poison-resistance**: altered or injected memories fail verification and are rejected before influencing the agent.
 
 ```bash
 cogmem verify              # check all memories and the log head
 cogmem receipt <memory-id> # prove a memory is in the signed log
+cogmem revoke <memory-id>  # revoke a memory (Bitstring Status List)
+cogmem status-list         # emit the signed revocation status-list credential
 ```
 
 See [PROVENANCE.md](./PROVENANCE.md) for the full specification.
@@ -246,6 +249,23 @@ See [PROVENANCE.md](./PROVENANCE.md) for the full specification.
 This proves the whole chain: agent identity (`cawg.ica.credential_valid`) bound to real cognition — a signed cogmem memory and a signed crosstalk reasoning audit, each an independently verifiable Ed25519 COSE/SCITT statement.
 
 </details>
+
+## Standards alignment
+
+cogmem is built on published standards, and it is precise about where it *conforms* versus where it is *-style* (compatible in shape and crypto, short of full profile conformance). The primitives are real Ed25519 signatures over real canonical byte structures — nothing here is mocked.
+
+| Standard | What cogmem implements | Status |
+|---|---|---|
+| [W3C DID](https://www.w3.org/TR/did-core/) | `did:key` (Ed25519), `did:web` (publishes an OKP `publicKeyJwk`), `did:jwk` — all with working resolvers | Conformant |
+| [W3C VC Data Model 2.0](https://www.w3.org/TR/vc-data-model-2.0/) | VC v2 context, credential `id`, `validFrom`/`validUntil`, `AgentMemoryCredential` / `AIAgentCredential` / `IdentityClaimsAggregationCredential` | Conformant; Verifiable Presentations are roadmap |
+| [W3C Data Integrity — `eddsa-jcs-2022`](https://www.w3.org/TR/vc-di-eddsa/) | Ed25519 Data Integrity proof over [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) JCS canonical bytes (UTF-16 key ordering, literal-UTF-8 strings) | Conformant |
+| [W3C Bitstring Status List](https://www.w3.org/TR/vc-bitstring-status-list/) | Every memory carries a `BitstringStatusListEntry`; a demoted/retired memory is revoked (GZIP + multibase `encodedList`) and published in a signed `BitstringStatusListCredential` | Conformant |
+| [IETF COSE (RFC 9052)](https://www.rfc-editor.org/rfc/rfc9052) | Untagged and tag-18 `COSE_Sign1`, EdDSA (`-8`) | Conformant; byte-interoperable with the `coset`-based verifiers in the sibling projects |
+| [IETF SCITT](https://datatracker.ietf.org/wg/scitt/about/) | `COSE_Sign1` signed statements + an append-only, hash-chained, signed log | SCITT-*style*. Conformant Signed-Statement headers (CWT_Claims), COSE Receipts, and a Transparency Service distinct from the issuer are roadmap — see below |
+| [RFC 6962](https://www.rfc-editor.org/rfc/rfc6962) Merkle | Signed tree head, inclusion proofs, verification | Conformant proof math; a witness co-signs the tree head for independent transparency |
+| [CAWG Identity Assertion (ICA)](https://cawg.io/identity/) | `IdentityClaimsAggregationCredential` in a tag-18 `COSE_Sign1` over `application/vc`, cross-checked against the C2PA `SignerPayload` | Interoperable with the ICA verifier in `c2pa-rs` |
+
+**Toward full SCITT conformance.** Three bounded steps, no new cryptography: (1) move `iss`/`sub`/content-type from the statement payload into the COSE protected header as CWT_Claims; (2) emit inclusion proofs as COSE Receipts (draft-ietf-cose-merkle-tree-proofs) in the statement's unprotected header; (3) make the external witness a mandatory Transparency-Service role distinct from the issuing agent. Steps 1–2 are re-encoding; step 3 is the architectural one, since a single-party log is a compatible format rather than meaningful transparency.
 
 ## Privacy
 

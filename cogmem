@@ -45,6 +45,9 @@ case "$cmd" in
   receipt)     exec "$PY" "$ENGINE/provenance.py" receipt "$@" ;;
   statement)   exec "$PY" "$ENGINE/provenance.py" statement "$@" ;;
   sign-vault)  exec "$PY" "$ENGINE/provenance.py" sign-vault ;;
+  revoke)      exec "$PY" "$ENGINE/provenance.py" revoke "$@" ;;
+  is-revoked)  exec "$PY" "$ENGINE/provenance.py" is-revoked "$@" ;;
+  status-list) exec "$PY" "$ENGINE/provenance.py" status-list ;;
   mcp)         exec "$PY" "$ENGINE/mcp_server.py" ;;
   consolidate) exec "$PY" "$ENGINE/consolidate.py" "$@" ;;
   index)       exec "$PY" "$ENGINE/index.py" "$@" ;;

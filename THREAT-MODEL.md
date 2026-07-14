@@ -147,10 +147,13 @@ current MVP proves.
    envelope is fixed (EdDSA −8, `application/cbor`), but it carries no explicit version field, so a
    future envelope change is silently ambiguous.
 
-7. **Canonicalization is JCS-*style*, not RFC 8785 (brief H5).** `_canonical` is
-   `json.dumps(sort_keys=True, separators=(",",":"))` — sorted-key compact JSON, not certified JCS.
-   Duplicate keys, Unicode normalization, and integer/float coercion are not handled the way a strict
-   JCS implementation would, opening a canonicalization-differential surface that is **untested**.
+7. **Canonicalization is RFC 8785 JCS (was the H5 gap; now closed).** `_canonical` implements
+   RFC 8785 — UTF-16 code-unit key ordering, ECMAScript-minimal string escaping with literal UTF-8,
+   bare-decimal integers — over the type set cogmem signs (objects, arrays, strings, integers,
+   booleans, null); floats are rejected rather than coerced. Covered by conformance vectors in
+   `JcsCanonicalizationTest` (escaping, ASCII and UTF-16 key ordering, non-ASCII round-trip). Residual:
+   the verify path parses with `json.loads`, which silently keeps the last of any duplicate keys — but
+   cogmem canonicalizes post-parse, so this is not a signing-differential for artifacts it issues.
 
 8. **`sign_vault` re-signs "legitimately edited" rules.** A rule whose body differs from its stored
    credential is treated as an update and re-signed under the agent key (`sign_vault`, `event="updated"`).
