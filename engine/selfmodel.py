@@ -88,6 +88,16 @@ def run(transcript: Path) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     FAILURES.mkdir(parents=True, exist_ok=True)
     tally = {"new": 0, "recur": 0}
+
+    def _bump(path: Path) -> int:
+        """Increment an existing failure-mode note's recurrence count + last_seen."""
+        meta, body = read_note(path)
+        meta["count"] = int(meta.get("count", 1)) + 1
+        meta["last_seen"] = now
+        write_note(path, meta, body)
+        tally["recur"] += 1
+        return meta["count"]
+
     for item in failures:
         mode = (item.get("mode") or "").strip()
         if not mode:
@@ -95,27 +105,24 @@ def run(transcript: Path) -> dict:
         if item.get("action") == "recur" and item.get("id"):
             path = FAILURES / f"{item['id']}.md"
             if path.exists():
-                meta, body = read_note(path)
-                meta["count"] = int(meta.get("count", 1)) + 1
-                meta["last_seen"] = now
-                write_note(path, meta, body)
-                tally["recur"] += 1
-                log.info("  RECUR (x%s): %s", meta["count"], item["id"])
+                log.info("  RECUR (x%s): %s", _bump(path), item["id"])
                 continue
         scope = (item.get("scope") or "universal").strip()
         slug = f"{scope}-{slugify(mode)}"
         path = FAILURES / f"{slug}.md"
         if path.exists():
-            meta, body = read_note(path)
-            meta["count"] = int(meta.get("count", 1)) + 1
-            meta["last_seen"] = now
-            write_note(path, meta, body)
-            tally["recur"] += 1
+            _bump(path)
             continue
         tripwire = (item.get("tripwire") or "").strip()
-        meta = {"id": slug, "scope": scope, "kind": "failure-mode", "count": 1,
-                "created": now, "last_seen": now,
-                "trigger": (item.get("trigger") or "").replace('"', "'")}
+        meta = {
+            "id": slug,
+            "scope": scope,
+            "kind": "failure-mode",
+            "count": 1,
+            "created": now,
+            "last_seen": now,
+            "trigger": (item.get("trigger") or "").replace('"', "'"),
+        }
         if tripwire and tripwire.lower() != "null":
             meta["tripwire"] = tripwire
             meta["guard"] = (item.get("guard") or "warn").strip() or "warn"
