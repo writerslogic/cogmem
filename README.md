@@ -287,6 +287,10 @@ cogmem is one component of the WritersLogic verifiable agent-provenance pipeline
 
 All four share one substrate — COSE_Sign1 / SCITT signed statements (Ed25519) and W3C DID identity — specified in [UNIFIED-PROVENANCE.md](./UNIFIED-PROVENANCE.md).
 
+## Security
+
+Found a vulnerability? Please report it privately — see [SECURITY.md](./SECURITY.md).
+
 ## License
 
 Apache-2.0 — see [LICENSE](./LICENSE).
