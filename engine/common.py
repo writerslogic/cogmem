@@ -113,3 +113,8 @@ def write_note(path: Path, meta: dict, body: str) -> None:
     lines.append("---\n")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n" + body.strip() + "\n")
+
+
+def count_md(p: Path) -> int:
+    """Number of `.md` notes in a vault directory (0 if it does not exist)."""
+    return len(list(p.glob("*.md"))) if p.exists() else 0

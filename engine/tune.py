@@ -13,20 +13,20 @@ Usage:
 
 import logging
 import sys
-from pathlib import Path
 
 from cogmem import config
-from cogmem.common import VAULT
+from cogmem.common import VAULT, count_md as _count
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("cogmem.tune")
 
-PENDING_WARN = 15        # pending Layer-A rules above this suggests too-liberal capture
-RULES_WARN = 200         # Layer-B rules above this suggests dedup is too loose
+PENDING_WARN = 15  # pending Layer-A rules above this suggests too-liberal capture
+RULES_WARN = 200  # Layer-B rules above this suggests dedup is too loose
 
 
 def tune_thresholds() -> None:
     from cogmem import eval as evalmod
+
     data = evalmod.load_eval_set(regen=False)
     if not data:
         log.info("No eval set; skipping threshold tuning.")
@@ -41,12 +41,13 @@ def tune_thresholds() -> None:
     cfg = config.load()
     cfg["recall_floor"], cfg["recall_gap"] = best[1], best[2]
     config.save(cfg)
-    log.info("Tuned: recall_floor=%.2f recall_gap=%.1f (recall@5=%.3f fp=%.3f)",
-             best[1], best[2], best[3]["recall_at_k"], best[3]["false_pos_rate"])
-
-
-def _count(p: Path) -> int:
-    return len(list(p.glob("*.md"))) if p.exists() else 0
+    log.info(
+        "Tuned: recall_floor=%.2f recall_gap=%.1f (recall@5=%.3f fp=%.3f)",
+        best[1],
+        best[2],
+        best[3]["recall_at_k"],
+        best[3]["false_pos_rate"],
+    )
 
 
 def health() -> None:
@@ -55,12 +56,19 @@ def health() -> None:
     quarantine = _count(VAULT / "quarantine")
     log.info("Health: %d Layer-B rules, %d pending, %d quarantined", rules, pending, quarantine)
     if pending > PENDING_WARN:
-        log.info("  WARN: %d rules pending approval (> %d). The extractor is marking too "
-                 "much as Layer-A; run `cogmem review list` to curate, and consider "
-                 "tightening the Layer-A bar.", pending, PENDING_WARN)
+        log.info(
+            "  WARN: %d rules pending approval (> %d). The extractor is marking too "
+            "much as Layer-A; run `cogmem review list` to curate, and consider "
+            "tightening the Layer-A bar.",
+            pending,
+            PENDING_WARN,
+        )
     if rules > RULES_WARN:
-        log.info("  WARN: %d Layer-B rules (> %d). Consolidation dedup may be too loose.",
-                 rules, RULES_WARN)
+        log.info(
+            "  WARN: %d Layer-B rules (> %d). Consolidation dedup may be too loose.",
+            rules,
+            RULES_WARN,
+        )
     if quarantine:
         log.info("  WARN: %d quarantined notes need a look.", quarantine)
 

@@ -13,9 +13,8 @@ import json
 import logging
 import sys
 from collections import Counter
-from pathlib import Path
 
-from cogmem.common import SOCK_PATH, VAULT, read_note
+from cogmem.common import SOCK_PATH, VAULT, count_md as _count, read_note
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("cogmem.metrics")
@@ -33,10 +32,6 @@ def scope_tokens(path) -> int:
         return 0
     chars = sum(len(l) for l in path.read_text(errors="replace").splitlines() if l.startswith("- "))
     return chars // 4
-
-
-def _count(p: Path) -> int:
-    return len(list(p.glob("*.md"))) if p.exists() else 0
 
 
 def rule_feedback() -> dict:
