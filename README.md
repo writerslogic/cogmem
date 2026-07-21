@@ -6,6 +6,7 @@
 # cogmem
 
 [![CI](https://github.com/writerslogic/cogmem/actions/workflows/ci.yml/badge.svg)](https://github.com/writerslogic/cogmem/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/writerslogic/cogmem/badge)](https://scorecard.dev/viewer/?uri=github.com/writerslogic/cogmem)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
 [![cogmem MCP server](https://glama.ai/mcp/servers/writerslogic/cogmem/badges/score.svg)](https://glama.ai/mcp/servers/writerslogic/cogmem)
